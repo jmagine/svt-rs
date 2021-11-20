@@ -154,8 +154,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "sv"
-version = "0.1.0"
+name = "svt-0_2_0"
+version = "0.2.0"
 dependencies = [
  "native-windows-derive",
  "native-windows-gui",
