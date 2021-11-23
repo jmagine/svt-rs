@@ -57,24 +57,24 @@ pub struct SVT {
   options_label: nwg::Label,
 
   //offset time
-  #[nwg_control(text: "0", size: (20, 20), position: (2, 20), parent: options_frame)]
+  #[nwg_control(text: "0", size: (19, 19), position: (2, 20), parent: options_frame)]
   offset_text: nwg::TextInput,
 
-  #[nwg_control(text: "Offset", size: (45, 20), position: (27, 23), parent: options_frame)]
+  #[nwg_control(text: "Offset", size: (45, 20), position: (25, 22), parent: options_frame)]
   offset_label: nwg::Label,
 
   //buffer time
-  #[nwg_control(text: "3", size: (20, 20), position: (2, 40), parent: options_frame)]
+  #[nwg_control(text: "3", size: (19, 19), position: (2, 40), parent: options_frame)]
   buffer_text: nwg::TextInput,
 
-  #[nwg_control(text: "Buffer", size: (45, 20), position: (27, 43), parent: options_frame)]
+  #[nwg_control(text: "Buffer", size: (45, 20), position: (25, 42), parent: options_frame)]
   buffer_label: nwg::Label,
 
   //exponential factor
-  #[nwg_control(text: "0.5", size: (20, 20), position: (2, 60), parent: options_frame)]
+  #[nwg_control(text: "0.5", size: (19, 19), position: (2, 60), parent: options_frame)]
   exponent_text: nwg::TextInput,
 
-  #[nwg_control(text: "Exp.", size: (45, 20), position: (27, 63), parent: options_frame)]
+  #[nwg_control(text: "Exp.", size: (45, 20), position: (25, 62), parent: options_frame)]
   exponent_label: nwg::Label,
 
   //toggles end line/start line BPM
