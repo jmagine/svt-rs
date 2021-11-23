@@ -91,7 +91,7 @@ pub struct SVT {
 
   //select map button
   #[nwg_control(text: "Select Mapfile", size: (102, 25), position: (4, 185))]
-  #[nwg_events( OnButtonClick: [SVT::open_file] )]
+  #[nwg_events( OnButtonClick: [SVT::open_file_browser] )]
   open_button: nwg::Button,
 
   //output map filename
@@ -105,7 +105,7 @@ pub struct SVT {
   
   //place apply button near bottom
   #[nwg_control(text: "Apply", size: (292, 25), position: (4, 245))]
-  #[nwg_events( OnButtonClick: [SVT::apply_sv] )]
+  #[nwg_events( OnButtonClick: [SVT::apply_changes] )]
   hello_button: nwg::Button,
 
   //place status bar at the very bottom
@@ -118,31 +118,23 @@ pub struct SVT {
 
   all_objs: RefCell<Vec<MapObject>>,
   new_objs: RefCell<Vec<MapObject>>,
-  //all_points: RefCell<Vec<String>>,
-  //inh_points: RefCell<Vec<String>>,
-  //inh_times: RefCell<Vec<i32>>,
-  //hit_times: RefCell<Vec<i32>>,
-  //bar_times: RefCell<Vec<i32>>,
-
-  //new_points: RefCell<Vec<String>>,
 }
 
 impl SVT {
-  fn apply_sv(&self) {
+  fn apply_changes(&self) {
     //refresh file before doing anything
     self.load_file();
 
+    //clear any previously applied points
     self.new_objs.borrow_mut().clear();
 
-    //take first 2 inherited lines and parse them
     let cmd = self.inherited_text.text();
     let mut lines = cmd.lines();
     let mut start_line;
     let mut end_line;
 
+    //process 2 valid lines at a time until no lines left
     loop {
-      //process 2 valid lines at a time until no lines left
-
       //skip empty lines
       //TODO could also attempt to do more data validation at this step
       start_line = lines.next();
@@ -167,122 +159,6 @@ impl SVT {
 
     //merge new points into old ones - delete old point if new one is identical
     self.write_output_points();
-  }
-
-  fn write_output_points(&self) {
-    self.new_objs.borrow_mut().sort_by_key(|k| (k.time, k.data.split(",").nth(6).unwrap().parse::<i32>().unwrap()));
-
-    let mut out_objs: Vec<MapObject> = Vec::new();
-    out_objs.extend(self.new_objs.borrow().iter().cloned());
-    for obj in self.all_objs.borrow().iter() {
-      //uninherited/inherited lines
-      if obj.class == 0 || obj.class == 1 {
-        out_objs.push(obj.clone());
-      }
-    }
-    //out_objs.extend(self.all_objs.borrow().iter().cloned());
-    out_objs.sort_by_key(|k| (k.time, k.data.split(",").nth(6).unwrap().parse::<i32>().unwrap()));
-    out_objs.dedup_by_key(|k| (k.time, k.data.split(",").nth(6).unwrap().parse::<i32>().unwrap()));
-
-    //all output is same except for timing points section
-
-    //write out new file
-    let in_filename = self.in_filename.text();
-    let out_filename = self.out_filename.text();
-
-    //make backup before writing file
-    //println!("[backup] {:?}", env::current_dir().unwrap());
-    if let Err(e) = fs::copy(&in_filename, "backup.osu") {
-      println!("[backup] error backing up file {}", e);
-    }
-
-    // read file line by line
-    let mut out_string = String::new();
-    let mut bool_timing = false;
-    if let Ok(lines) = read_lines(&in_filename) {
-      for line in lines {
-        if let Ok(s) = line {
-          // we want everything except timingpoints lines
-          match s.as_str() {
-            "[General]" | "[Editor]" | "[Metadata]" | "[Difficulty]" | "[Events]" | "[Colours]" | "[HitObjects]" => {
-              bool_timing = false;
-              out_string += &s;
-              out_string += "\n";
-            },
-            "[TimingPoints]" => {
-              bool_timing = true;
-              out_string += &s;
-              out_string += "\n";
-              for out_obj in out_objs.iter() {
-                out_string += &out_obj.data;
-                out_string += "\n";
-              }
-              out_string += "\n";
-            },
-            _ => {
-              let s_tokens: Vec<&str> = s.split(":").collect();
-              if self.preview_check.check_state() == nwg::CheckBoxState::Checked && s_tokens.len() == 2 && s_tokens[0] == "Version" {
-                out_string += "Version:preview\n";
-              } else if !bool_timing {
-                out_string += &s;
-                out_string += "\n";
-              }
-            },
-          }
-        }
-      }
-    }
-    let mut out_file = File::create(out_filename).unwrap();
-    let _ = write!(&mut out_file, "{}", out_string);
-  }
-  
-  fn close_window(&self) {
-    nwg::stop_thread_dispatch();
-  }
-
-  fn open_file(&self) {
-    if let Ok(d) = env::current_dir() {
-      if let Some(d) = d.to_str() {
-        self.file_dialog.set_default_folder(d).expect("Failed to set default folder.");
-      }
-    }
-  
-    if self.file_dialog.run(Some(&self.window)) {
-      self.in_filename.set_text("");
-      if let Ok(directory) = self.file_dialog.get_selected_item() {
-        let dir = directory.into_string().unwrap();
-        self.in_filename.set_text(&dir);
-        self.fill_out_filename();
-        self.load_file();
-      }
-    }
-  }
-
-  pub fn drop_file(&self, data: &nwg::EventData) {
-    self.in_filename.set_text(&data.on_file_drop().files().pop().unwrap());
-    self.fill_out_filename();
-    self.load_file();
-  }
-
-  pub fn fill_out_filename(&self) {
-    if self.preview_check.check_state() == nwg::CheckBoxState::Checked {
-      let in_filename = &self.in_filename.text();
-
-      //prevent paths without parents or filenames from crashing
-      let folder = Path::new(in_filename).parent();
-      let name_osu = Path::new(in_filename).file_name();
-
-      match (folder, name_osu) {
-        (Some(folder), Some(name_osu)) => {
-          self.out_filename.set_text(&format!("{}/{}[{}].osu", folder.to_str().unwrap(), name_osu.to_str().unwrap().split("[").nth(0).unwrap(), "preview"));
-        },
-        _ => {
-          println!("[pre] path invalid");
-        },
-      }
-    } else {
-      self.out_filename.set_text(&self.in_filename.text());
-    }
   }
 
   fn apply_timing(&self, start_line: &str, end_line: &str) {
@@ -325,8 +201,6 @@ impl SVT {
       }
 
       //convert beatlength values to sv values
-      //sv = -100.0 / beatlength
-      //raw_sv = sv * bpm
       let s_sv_raw = -100.0 / s_b * start_bpm;
       let e_sv_raw = if self.eq_bpm_check.check_state() == nwg::CheckBoxState::Checked {
         -100.0 / e_b * start_bpm
@@ -356,7 +230,6 @@ impl SVT {
       let mut effects = 0;
 
       for obj in self.all_objs.borrow().iter() {
-        //println!("[apply] {} {} {}", obj.time, obj.class, obj.data);
         let obj_tokens: Vec<&str> = obj.data.split(",").collect();
         //handle uninherited lines differently
         if obj.class == 0 {
@@ -423,9 +296,40 @@ impl SVT {
       return;
     }
   }
+  
+  fn close_window(&self) {
+    nwg::stop_thread_dispatch();
+  }
 
-  // load and parse .osu file line by line
-  pub fn load_file(&self) {
+  fn drop_file(&self, data: &nwg::EventData) {
+    self.in_filename.set_text(&data.on_file_drop().files().pop().unwrap());
+    self.fill_out_filename();
+    self.load_file();
+  }
+
+  fn fill_out_filename(&self) {
+    if self.preview_check.check_state() == nwg::CheckBoxState::Checked {
+      let in_filename = &self.in_filename.text();
+
+      //prevent paths without parents or filenames from crashing
+      let folder = Path::new(in_filename).parent();
+      let name_osu = Path::new(in_filename).file_name();
+
+      match (folder, name_osu) {
+        (Some(folder), Some(name_osu)) => {
+          self.out_filename.set_text(&format!("{}/{}[{}].osu", folder.to_str().unwrap(), name_osu.to_str().unwrap().split("[").nth(0).unwrap(), "preview"));
+        },
+        _ => {
+          println!("[pre] path invalid");
+        },
+      }
+    } else {
+      self.out_filename.set_text(&self.in_filename.text());
+    }
+  }
+
+  //load and parse .osu file line by line
+  fn load_file(&self) {
     let filename = self.in_filename.text();
 
     if filename.len() == 0 {
@@ -433,13 +337,13 @@ impl SVT {
       return;
     }
 
-    // determine filename and extension
+    //determine filename and extension
     let ext = Path::new(&filename).extension();
 
     let folder = String::from(Path::new(&filename).parent().unwrap().to_str().unwrap());
     println!("[load] folder: {}", folder);
 
-    // skip any file that is not .osu
+    //skip any file that is not .osu
     match ext {
       Some(str) => if str.to_str() != Some("osu") {
         println!("[load] incorrect file type: .{}", str.to_str().unwrap());
@@ -457,14 +361,8 @@ impl SVT {
     //TODO figure out better way to init this
     let mut bar_time: f32 = 100000.0;
     let mut bar_inc: f32 = 100000.0;
-    //self.inh_points = Vec::new();
-    //self.inh_times = Vec::new();
-    //self.hit_times = Vec::new();
 
     self.all_objs.borrow_mut().clear();
-    //self.inh_points.borrow_mut().clear();
-    //self.hit_times.borrow_mut().clear();
-    //self.bar_times.borrow_mut().clear();
 
     // read file line by line
     if let Ok(lines) = read_lines(&filename) {
@@ -488,15 +386,6 @@ impl SVT {
             },
             _ => {
               if bool_timing {
-                //println!("[load] timing {}", s);
-                //TODO do barlines when processing sv section and then process the hit objects vec + barlines vec after filereading is complete
-                
-                
-                //if let Ok(time) = s.split(",").nth(0).unwrap().parse::<i32>() {
-                //  println!("[load] sv {}", time);
-                  //self.inh_times.borrow_mut().push(time);
-                //}
-
                 let s_tokens: Vec<&str> = s.split(",").collect();
                 if s_tokens.len() != 8 {
                   continue;
@@ -511,7 +400,6 @@ impl SVT {
                 match (time, beatlength, meter, uninherited, effect) {
                   (Ok(t), Ok(bl), Ok(m), Ok(uninh), Ok(eff)) => {
                     //add barlines since last timing point
-
                     while bar_time + bar_inc < t as f32 {
                       bar_time += bar_inc;
                       self.all_objs.borrow_mut().push(MapObject{time: bar_time as i32, class: 2, data: String::from("")});
@@ -554,21 +442,103 @@ impl SVT {
     self.all_objs.borrow_mut().sort_by_key(|k| k.time);
     self.status.set_text(0, &format!("editing {}", Path::new(&filename).file_name().unwrap().to_str().unwrap()));
   }
+
+  fn open_file_browser(&self) {
+    if let Ok(d) = env::current_dir() {
+      if let Some(d) = d.to_str() {
+        self.file_dialog.set_default_folder(d).expect("[brow] failed to set default folder");
+      }
+    }
+  
+    if self.file_dialog.run(Some(&self.window)) {
+      self.in_filename.set_text("");
+      if let Ok(directory) = self.file_dialog.get_selected_item() {
+        let dir = directory.into_string().unwrap();
+        self.in_filename.set_text(&dir);
+        self.fill_out_filename();
+        self.load_file();
+      }
+    }
+  }
+
+  fn write_output_points(&self) {
+    //sort new objects in chronological order
+    //TODO inherited vs uninherited should not apply here, these are the new points
+    self.new_objs.borrow_mut().sort_by_key(|k| (k.time, k.data.split(",").nth(6).unwrap().parse::<i32>().unwrap()));
+
+    //build up a vector with all old and new points sorted in chronological, then uninherited > inherited order
+    let mut out_objs: Vec<MapObject> = Vec::new();
+    out_objs.extend(self.new_objs.borrow().iter().cloned());
+    for obj in self.all_objs.borrow().iter() {
+      //uninherited/inherited lines
+      if obj.class == 0 || obj.class == 1 {
+        out_objs.push(obj.clone());
+      }
+    }
+    out_objs.sort_by_key(|k| (k.time, k.data.split(",").nth(6).unwrap().parse::<i32>().unwrap()));
+    out_objs.dedup_by_key(|k| (k.time, k.data.split(",").nth(6).unwrap().parse::<i32>().unwrap()));
+
+    //write out new file
+    let in_filename = self.in_filename.text();
+    let out_filename = self.out_filename.text();
+
+    //make backup before writing file, don't write without backing up
+    if let Err(e) = fs::copy(&in_filename, "backup.osu") {
+      println!("[backup] error backing up file {}", e);
+      return;
+    }
+
+    // read file line by line
+    let mut out_string = String::new();
+    let mut bool_timing = false;
+    if let Ok(lines) = read_lines(&in_filename) {
+      for line in lines {
+        if let Ok(s) = line {
+          // we want everything except timingpoints lines
+          match s.as_str() {
+            "[General]" | "[Editor]" | "[Metadata]" | "[Difficulty]" | "[Events]" | "[Colours]" | "[HitObjects]" => {
+              bool_timing = false;
+              out_string += &s;
+              out_string += "\n";
+            },
+            "[TimingPoints]" => {
+              bool_timing = true;
+              out_string += &s;
+              out_string += "\n";
+              for out_obj in out_objs.iter() {
+                out_string += &out_obj.data;
+                out_string += "\n";
+              }
+              out_string += "\n";
+            },
+            _ => {
+              let s_tokens: Vec<&str> = s.split(":").collect();
+              if self.preview_check.check_state() == nwg::CheckBoxState::Checked && s_tokens.len() == 2 && s_tokens[0] == "Version" {
+                out_string += "Version:preview\n";
+              } else if !bool_timing {
+                out_string += &s;
+                out_string += "\n";
+              }
+            },
+          }
+        }
+      }
+    }
+    let mut out_file = File::create(out_filename).unwrap();
+    let _ = write!(&mut out_file, "{}", out_string);
+  }
 }
 
-// The output is wrapped in a Result to allow matching on errors
-// Returns an Iterator to the Reader of the lines of the file.
-fn read_lines<P>(full_path: P) -> io::Result<io::Lines<io::BufReader<File>>>
-where P: AsRef<Path>, {
+fn read_lines<P>(full_path: P) -> io::Result<io::Lines<io::BufReader<File>>> where P: AsRef<Path>, {
   let file = File::open(full_path)?;
   Ok(io::BufReader::new(file).lines())
 }
 
 fn main() {
   let icon_bytes = include_bytes!("../assets/svt.ico");
-  nwg::init().expect("Failed to init Native Windows GUI");
+  nwg::init().expect("[main] failed to init nwg");
 
-  // use Segoe UI with 16 size as default font
+  //use Segoe UI with 16 size as default font
   let mut font = nwg::Font::default();
 
   nwg::Font::builder()
@@ -577,17 +547,15 @@ fn main() {
     .build(&mut font).ok();
   nwg::Font::set_global_default(Some(font));
 
+  //set icon on taskbar and on window top left
   let mut icon = nwg::Icon::default();
   let _res_ = nwg::Icon::builder()
-    //.source_file(Some("svt.ico"))
     .source_bin(Some(icon_bytes))
     .strict(true)
     .build(&mut icon);
 
-  
-
-  let _app = SVT::build_ui(Default::default()).expect("Failed to build UI");
-  _app.window.set_icon(Some(&icon));
+  let app = SVT::build_ui(Default::default()).expect("[main] failed to build UI");
+  app.window.set_icon(Some(&icon));
 
   nwg::dispatch_thread_events();
 }
