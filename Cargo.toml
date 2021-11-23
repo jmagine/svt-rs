@@ -1,6 +1,6 @@
 [package]
-name = "svt-0_2_0"
-version = "0.2.0"
+name = "svt-0_3_1"
+version = "0.3.1"
 authors = ["Jason Ma <jasonma5501@gmail.com>"]
 edition = "2018"
 
