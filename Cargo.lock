@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "anyhow"
+version = "1.0.48"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62e1f47f7dc0422027a4e370dd4548d4d66b26782e513e98dca1e689e058a80e"
+
+[[package]]
 name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -154,9 +160,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "svt-0_3_2"
-version = "0.3.2"
+name = "svt-0_4_1"
+version = "0.4.1"
 dependencies = [
+ "anyhow",
  "native-windows-derive",
  "native-windows-gui",
  "winres",

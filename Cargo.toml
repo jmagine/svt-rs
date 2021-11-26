@@ -1,12 +1,13 @@
 [package]
-name = "svt-0_3_2"
-version = "0.3.2"
+name = "svt-0_4_1"
+version = "0.4.1"
 authors = ["Jason Ma <jasonma5501@gmail.com>"]
 edition = "2018"
 
 [dependencies]
 native-windows-gui = "1.0.12"
 native-windows-derive = "1.0.3"
+anyhow = "1.0.48"
 
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]

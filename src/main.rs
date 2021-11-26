@@ -1,8 +1,9 @@
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 
 extern crate native_windows_gui as nwg;
 extern crate native_windows_derive as nwd;
 
+use anyhow::{anyhow, Result, Context};
 use nwd::NwgUi;
 use nwg::NativeUi;
 use std::{cell::RefCell};
@@ -12,12 +13,31 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::cmp;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MapObject {
-  time: i32,
   class: i32,
+  time: i32,
+  beatlength: f32,
+  meter: i32,
+  sampleset: i32,
+  sampleindex: i32,
+  volume: i32,
+  uninherited: i32,
+  effects: i32,
   data: String,
 }
+
+/*
+impl Default for MapObject {
+  fn default() -> MapObject {
+    MapObject {
+      class: 0,
+      time: 0,
+      beatlength: 0,
+    }
+  }
+}
+*/
 
 #[derive(Default, NwgUi)]
 pub struct SVT {
@@ -85,23 +105,23 @@ pub struct SVT {
   #[nwg_control(text: "Exponential SV", size: (105, 20), position: (75, 40), check_state: CheckBoxState::Unchecked, parent: options_frame)]
   exponential_check: nwg::CheckBox,
 
-  //input map filename
-  #[nwg_control(text: "", size: (185, 23), position: (110, 186))]
-  in_filename: nwg::TextInput,
-
   //select map button
   #[nwg_control(text: "Select Mapfile", size: (102, 25), position: (4, 185))]
   #[nwg_events( OnButtonClick: [SVT::open_file_browser] )]
   open_button: nwg::Button,
 
-  //output map filename
-  #[nwg_control(text: "", size: (185, 23), position: (110, 216))]
-  out_filename: nwg::TextInput,
+  //input map filename
+  #[nwg_control(text: "", size: (185, 23), position: (110, 186), flags: "VISIBLE|DISABLED")]
+  in_filename: nwg::TextInput,
 
   //toggles preview
   #[nwg_control(text: "Preview Output", size: (102, 25), position: (5, 215), check_state: CheckBoxState::Checked)]
   #[nwg_events(OnButtonClick: [SVT::fill_out_filename])]
   preview_check: nwg::CheckBox,
+  
+  //output map filename
+  #[nwg_control(text: "", size: (185, 23), position: (110, 216))]
+  out_filename: nwg::TextInput,
   
   //place apply button near bottom
   #[nwg_control(text: "Apply", size: (292, 25), position: (4, 245))]
@@ -109,7 +129,7 @@ pub struct SVT {
   hello_button: nwg::Button,
 
   //place status bar at the very bottom
-  #[nwg_control(text: "no map selected")]
+  #[nwg_control(text: "[map] no map selected (Select Mapfile or drag one in)")]
   status: nwg::StatusBar,
 
   //open file dialog
@@ -129,22 +149,22 @@ impl SVT {
     self.new_objs.borrow_mut().clear();
 
     let cmd = self.inherited_text.text();
-    let mut lines = cmd.lines();
+    let mut lines = cmd.split_whitespace();
     let mut start_line;
     let mut end_line;
 
     //process 2 valid lines at a time until no lines left
     loop {
-      //skip empty lines
       //TODO could also attempt to do more data validation at this step
+      //could create the mapobjects here and pass those into apply_timing instead
       start_line = lines.next();
-      while start_line == Some("") {start_line = lines.next();}
-
       end_line = lines.next();
-      while end_line == Some("") {end_line = lines.next();}
-
       if let (Some(start_l), Some(end_l)) = (start_line, end_line) {
-        self.apply_timing(start_l, end_l);
+        if let Err(err) = self.apply_timing(start_l, end_l) {
+          println!("[apply] error applying timing {}->{}", start_l, end_l);
+          self.status.set_text(0, &err.to_string());
+          return;
+        }
       } else {
         println!("[apply] no more lines");
         break;
@@ -154,147 +174,141 @@ impl SVT {
     //don't write anything if no new objects
     if self.new_objs.borrow().len() == 0 {
       println!("[apply] no new objects, early termination");
+      self.status.set_text(0, "[apply] no new objects to apply");
       return;
     }
 
     //merge new points into old ones - delete old point if new one is identical
-    self.write_output_points();
+    if let Err(err) = self.write_output_points() {
+      println!("[apply] error writing output");
+      self.status.set_text(0, &err.to_string());
+      return;
+    }
+
+    //update status bar with change count on success
+    self.status.set_text(0, &format!("[apply] {} changes applied", self.new_objs.borrow().len()));
   }
 
-  fn apply_timing(&self, start_line: &str, end_line: &str) {
-    let start_tokens: Vec<&str> = start_line.split(",").collect();
-    let end_tokens: Vec<&str> = end_line.split(",").collect();
+  fn apply_timing(&self, start_line: &str, end_line: &str) -> Result<()> {
+    let exp = self.exponent_text.text().parse::<f32>().context("[apply] invalid exponent")?;
+    let t_off = self.offset_text.text().parse::<i32>().context("[apply] invalid offset")?;
+    let t_buf = self.buffer_text.text().parse::<i32>().context("[apply] invalid buffer")?;
 
-    if start_tokens.len() != 8 || end_tokens.len() != 8 {
-      println!("formatting issue:\n{}\n{}", start_line, end_line);
-      return;
+    let start_obj = create_map_object(start_line.to_string(), true).context("[apply] timing point format error")?;
+    let end_obj = create_map_object(end_line.to_string(), true).context("[apply] timing point format error")?;
+
+    //determine bpm at starting/ending point
+    let mut s_bpm = 160.0;
+    let mut e_bpm = 160.0;
+    for obj in self.all_objs.borrow().iter() {
+      if obj.class == 1 {
+        if obj.time < start_obj.time {
+          s_bpm = 60000.0 / obj.beatlength;
+        }
+        if obj.time < end_obj.time {
+          e_bpm = 60000.0 /  obj.beatlength;
+        }
+      }
     }
 
-    let exponent = self.exponent_text.text().parse::<f32>();
-
-    let t_offset = self.offset_text.text().parse::<i32>();
-    let t_buffer = self.buffer_text.text().parse::<i32>();
-
-    let start_time = start_tokens[0].parse::<i32>();
-    let start_bl = start_tokens[1].parse::<f32>();
-    let start_vol = start_tokens[5].parse::<i32>();
-
-    let end_time = end_tokens[0].parse::<i32>();
-    let end_bl = end_tokens[1].parse::<f32>();
-    let end_vol = end_tokens[5].parse::<i32>();
-
-    //all token validation
-    if let (Ok(t_off), Ok(t_buf), Ok(s_t), Ok(s_b), Ok(s_v), Ok(e_t), Ok(e_b), Ok(e_v), Ok(exp)) = (t_offset, t_buffer, start_time, start_bl, start_vol, end_time, end_bl, end_vol, exponent) {
-      //determine bpm at starting point
-      let mut start_bpm = 160.0;
-      let mut end_bpm = 160.0;
-      for obj in self.all_objs.borrow().iter() {
-        if obj.class == 0 {
-          let obj_tokens: Vec<&str> = obj.data.split(",").collect();
-          if obj.time < s_t {
-            start_bpm = 60000.0 / obj_tokens[1].parse::<f32>().unwrap();
-          }
-          if obj.time < e_t {
-            end_bpm = 60000.0 /  obj_tokens[1].parse::<f32>().unwrap();
-          }
-        }
-      }
-
-      //convert beatlength values to sv values
-      let s_sv_raw = -100.0 / s_b * start_bpm;
-      let e_sv_raw = if self.eq_bpm_check.check_state() == nwg::CheckBoxState::Checked {
-        -100.0 / e_b * start_bpm
-      } else {
-        -100.0 / e_b * end_bpm
-      };
-
-      //debug print
-      println!("[apply] t:{}->{} raw sv:{}->{} vol:{}->{}", s_t, e_t, s_sv_raw, e_sv_raw, s_v, e_v);
-
-      //validation on input values
-      if s_t > e_t {println!("[apply] start time should be less than end time"); return;}
-      if s_sv_raw <= 0.0 || e_sv_raw <= 0.0 {println!("[apply] sv values should be positive (neg beatlength values"); return;} 
-      if s_v < 0 || s_v > 100 || e_v < 0 || e_v > 100 {println!("[apply] volumes should be within [0, 100]"); return;}
-      
-      //compute change per time tick
-      let t_diff = e_t - s_t;
-      let sv_diff = e_sv_raw - s_sv_raw;
-      let v_diff = e_v - s_v;
-      let sv_per_ms = sv_diff / t_diff as f32;
-      let v_per_ms = v_diff as f32 / t_diff as f32;
-
-      let mut bpm = 160.0;
-      let mut meter = 4;
-      let mut sample_set = 0;
-      let mut sample_index = 0;
-      let mut effects = 0;
-
-      for obj in self.all_objs.borrow().iter() {
-        let obj_tokens: Vec<&str> = obj.data.split(",").collect();
-        //handle uninherited lines differently
-        if obj.class == 0 {
-          bpm = 60000.0 / obj_tokens[1].parse::<f32>().unwrap();
-          meter = obj_tokens[2].parse::<i32>().unwrap();
-          sample_set = obj_tokens[3].parse::<i32>().unwrap();
-          sample_index = obj_tokens[4].parse::<i32>().unwrap();
-          effects = obj_tokens[7].parse::<i32>().unwrap();
-          continue;
-        }
-
-        //perform general calculations here for inher, barlines, hitobjects
-        let obj_time = obj.time;
-        if obj_time >= s_t - t_buf && obj_time <= e_t + t_buf {
-          let new_t = obj_time + t_off;
-          let new_sv = if self.exponential_check.check_state() == nwg::CheckBoxState::Checked {
-            //exponential
-            s_sv_raw + sv_diff * f32::powf((obj_time - s_t) as f32 / t_diff as f32, exp)
-          } else {
-            //linear
-            s_sv_raw + (obj_time - s_t) as f32 * sv_per_ms
-          };
-
-          let new_b = -100.0 / (new_sv / bpm);
-          let new_v = (s_v as f32 + (obj_time - s_t) as f32 * v_per_ms) as u32;
-          let new_point = format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, new_v, 0, effects);
-        
-
-          match obj.class {
-            0 => {println!("[apply] shouldn't get here, class 0");}, //uninherited line
-            1 => {
-              //inherited line
-              if self.inh_check.check_state() == nwg::CheckBoxState::Checked {
-                println!("[new] inh {}", new_point);
-                self.new_objs.borrow_mut().push(MapObject{time: new_t, class: 4, data: new_point});
-
-                sample_set = obj_tokens[3].parse::<i32>().unwrap();
-                sample_index = obj_tokens[4].parse::<i32>().unwrap();
-                effects = obj_tokens[7].parse::<i32>().unwrap();
-              }
-            },
-            2 => {
-              //barline
-              if self.barline_check.check_state() == nwg::CheckBoxState::Checked {
-                println!("[new] bar {}", new_point);
-                self.new_objs.borrow_mut().push(MapObject{time: new_t, class: 4, data: new_point});
-              }
-            },
-            3 => {
-              //hitobject
-              if self.hit_check.check_state() == nwg::CheckBoxState::Checked {
-                println!("[new] hit {}", new_point);
-                self.new_objs.borrow_mut().push(MapObject{time: new_t, class: 4, data: new_point});
-              }
-            },
-            _ => {
-              println!("[apply] unknown class {}", obj.class);
-            }
-          }
-        }
-      }
+    //convert beatlength values to sv values
+    let s_sv_raw = -100.0 * s_bpm / start_obj.beatlength;
+    let e_sv_raw = if self.eq_bpm_check.check_state() == nwg::CheckBoxState::Checked {
+      -100.0 * s_bpm / end_obj.beatlength
     } else {
-      println!("[apply] issue:\n{}\n{}", start_line, end_line);
-      return;
+      -100.0 * e_bpm / end_obj.beatlength
+    };
+
+    //debug print
+    println!("[apply] t:{}->{} raw sv:{}->{} vol:{}->{}", start_obj.time, end_obj.time, s_sv_raw, e_sv_raw, start_obj.volume, end_obj.volume);
+
+    //validation on input values
+    if start_obj.time > end_obj.time {
+      return Err(anyhow!("[apply] invalid times (end <= start)"));
     }
+    if s_sv_raw <= 0.0 || e_sv_raw <= 0.0 {
+      return Err(anyhow!("[apply] invalid sv value(s) (sv <= 0)"));
+    }
+    if start_obj.volume < 0 || start_obj.volume > 100 || end_obj.volume < 0 || end_obj.volume > 100 {
+      return Err(anyhow!("[apply] invalid volumes (vol < 0 or vol > 100)"));
+    }
+    
+    //compute change per time tick
+    let t_diff = end_obj.time - start_obj.time;
+    let sv_diff = e_sv_raw - s_sv_raw;
+    let v_diff = end_obj.volume - start_obj.volume;
+    let sv_per_ms = sv_diff / t_diff as f32;
+    let v_per_ms = v_diff as f32 / t_diff as f32;
+
+    let mut bpm = 160.0;
+    let mut meter = 4;
+    let mut sample_set = 0;
+    let mut sample_index = 0;
+    let mut effects = 0;
+
+    for obj in self.all_objs.borrow().iter() {
+      //set fields before performing calculations
+      if obj.class == 1 {
+        //uninherited point
+        bpm = 60000.0 / obj.beatlength;
+        meter = obj.meter;
+        sample_set = obj.sampleset;
+        sample_index = obj.sampleindex;
+        effects = obj.effects;
+        continue;
+      } else if obj.class == 0 {
+        //inherited point
+        sample_set = obj.sampleset;
+        sample_index = obj.sampleindex;
+        effects = obj.effects;
+      }
+
+      //perform general calculations here for inher, barlines, hitobjects
+      let obj_time = obj.time;
+      if obj_time >= start_obj.time - t_buf && obj_time <= end_obj.time + t_buf {
+        let new_t = obj_time + t_off;
+        let new_sv = if self.exponential_check.check_state() == nwg::CheckBoxState::Checked {
+          //exponential
+          s_sv_raw + sv_diff * f32::powf((obj_time - start_obj.time) as f32 / t_diff as f32, exp)
+        } else {
+          //linear
+          s_sv_raw + (obj_time - start_obj.time) as f32 * sv_per_ms
+        };
+
+        let new_b = -100.0 / (new_sv / bpm);
+        let new_v = (start_obj.volume as f32 + (obj_time - start_obj.time) as f32 * v_per_ms) as u32;
+        let new_point = format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, new_v, 0, effects);
+
+        match obj.class {
+          0 => {
+            //inherited line
+            if self.inh_check.check_state() == nwg::CheckBoxState::Checked {
+              println!("[new] inh {}", new_point);
+              self.new_objs.borrow_mut().push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
+            }
+          },
+          1 => {println!("[apply] shouldn't get here, class 1");}, //uninherited line
+          2 => {
+            //barline
+            if self.barline_check.check_state() == nwg::CheckBoxState::Checked {
+              println!("[new] bar {}", new_point);
+              self.new_objs.borrow_mut().push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
+            }
+          },
+          3 => {
+            //hitobject
+            if self.hit_check.check_state() == nwg::CheckBoxState::Checked {
+              println!("[new] hit {}", new_point);
+              self.new_objs.borrow_mut().push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
+            }
+          },
+          _ => {
+            println!("[apply] unknown class {}", obj.class);
+          }
+        }
+      }
+    }
+    Ok(())
   }
   
   fn close_window(&self) {
@@ -315,6 +329,8 @@ impl SVT {
       let folder = Path::new(in_filename).parent();
       let name_osu = Path::new(in_filename).file_name();
 
+      //TODO check path is valid maybe?
+      //TODO clean this match statement up
       match (folder, name_osu) {
         (Some(folder), Some(name_osu)) => {
           self.out_filename.set_text(&format!("{}/{}[{}].osu", folder.to_str().unwrap(), name_osu.to_str().unwrap().split("[").nth(0).unwrap(), "preview"));
@@ -332,6 +348,7 @@ impl SVT {
   fn load_file(&self) {
     let filename = self.in_filename.text();
 
+    //TODO this check is probably not sufficient. need additional validation
     if filename.len() == 0 {
       println!("[load] empty filename");
       return;
@@ -386,51 +403,36 @@ impl SVT {
             },
             _ => {
               if bool_timing {
-                let s_tokens: Vec<&str> = s.split(",").collect();
-                if s_tokens.len() != 8 {
-                  continue;
-                }
-
-                let time = s_tokens[0].parse::<i32>();
-                let beatlength = s_tokens[1].parse::<f32>();
-                let meter = s_tokens[2].parse::<i32>();
-                let uninherited = s_tokens[6].parse::<i32>();
-                let effect = s_tokens[7].parse::<i32>();
+                if let Ok(map_obj) = create_map_object(s, true) {
+                  //add barlines since last timing point
+                  while bar_time + bar_inc < map_obj.time as f32 {
+                    bar_time += bar_inc;
+                    self.all_objs.borrow_mut().push(MapObject{time: bar_time as i32, class: 2, data: String::from(""), ..Default::default()});
+                  }
                 
-                match (time, beatlength, meter, uninherited, effect) {
-                  (Ok(t), Ok(bl), Ok(m), Ok(uninh), Ok(eff)) => {
-                    //add barlines since last timing point
-                    while bar_time + bar_inc < t as f32 {
-                      bar_time += bar_inc;
-                      self.all_objs.borrow_mut().push(MapObject{time: bar_time as i32, class: 2, data: String::from("")});
+                  //use uninherited point properties to calculate barline times
+                  if map_obj.uninherited == 1 {
+                    //set barline counter
+                    bar_time = map_obj.time as f32;
+                    bar_inc = map_obj.beatlength * map_obj.meter as f32;
+
+                    //add current barline if not skipping barline (skip if effects is set to 8)
+                    if map_obj.effects & 8 != 8 {
+                      self.all_objs.borrow_mut().push(MapObject{time: bar_time as i32, class: 2, data: String::from(""), ..Default::default()});
                     }
+                  }
 
-                    if uninh == 1 {
-                      //uninherited point
-                      self.all_objs.borrow_mut().push(MapObject{time: t, class: 0, data: s.clone()});
-
-                      //only skip barline if effect bit 3 is set
-                      if eff & 8 != 8 {
-                        self.all_objs.borrow_mut().push(MapObject{time: t, class: 2, data: String::from("")});
-                      }
-
-                      //set barline counter based on uninherited point
-                      bar_time = t as f32;
-                      bar_inc = bl * m as f32;
-                    } else if uninh == 0 {
-                      //inherited point
-                      self.all_objs.borrow_mut().push(MapObject{time: t, class: 1, data: s.clone()});
-                    }
-                  },
-                  _ => {
-                    println!("[load] issue {}", s);
-                    return;
-                  },
+                  //add timing point
+                  self.all_objs.borrow_mut().push(map_obj);
                 }
               } else if bool_hit {
-                if let Ok(hit_time) = s.split(",").nth(2).unwrap().parse::<i32>() {
-                  self.all_objs.borrow_mut().push(MapObject{time: hit_time, class: 3, data: String::from("")});
+                if let Ok(map_obj) = create_map_object(s, false) {
+                  self.all_objs.borrow_mut().push(map_obj);
                 }
+
+                //if let Ok(hit_time) = s.split(",").nth(2).unwrap().parse::<i32>() {
+                //  self.all_objs.borrow_mut().push(MapObject{time: hit_time, class: 3, data: String::from("")});
+                //}
               } else {
                 continue;
               }
@@ -461,10 +463,10 @@ impl SVT {
     }
   }
 
-  fn write_output_points(&self) {
+  fn write_output_points(&self) -> Result<()> {
     //sort new objects in chronological order
     //TODO inherited vs uninherited should not apply here, these are the new points
-    self.new_objs.borrow_mut().sort_by_key(|k| (k.time, k.data.split(",").nth(6).unwrap().parse::<i32>().unwrap()));
+    self.new_objs.borrow_mut().sort_by_key(|k| (k.time, k.uninherited));
 
     //build up a vector with all old and new points sorted in chronological, then uninherited > inherited order
     let mut out_objs: Vec<MapObject> = Vec::new();
@@ -475,8 +477,8 @@ impl SVT {
         out_objs.push(obj.clone());
       }
     }
-    out_objs.sort_by_key(|k| (k.time, k.data.split(",").nth(6).unwrap().parse::<i32>().unwrap()));
-    out_objs.dedup_by_key(|k| (k.time, k.data.split(",").nth(6).unwrap().parse::<i32>().unwrap()));
+    out_objs.sort_by_key(|k| (k.time, k.uninherited));
+    out_objs.dedup_by_key(|k| (k.time, k.uninherited));
 
     //write out new file
     let in_filename = self.in_filename.text();
@@ -484,8 +486,7 @@ impl SVT {
 
     //make backup before writing file, don't write without backing up
     if let Err(e) = fs::copy(&in_filename, "backup.osu") {
-      println!("[backup] error backing up file {}", e);
-      return;
+      return Err(anyhow!("[backup] error backing up file {}", e));
     }
 
     // read file line by line
@@ -523,10 +524,47 @@ impl SVT {
           }
         }
       }
+    } else {
+      return Err(anyhow!("[write] input file/filename invalid"));
     }
+
     let mut out_file = File::create(out_filename).unwrap();
     let _ = write!(&mut out_file, "{}", out_string);
+    Ok(())
   }
+}
+
+fn create_map_object(p: String, timingpoint: bool) -> Result<MapObject> {
+  let p_tokens: Vec<&str> = p.split(",").collect();
+
+  let map_obj = if timingpoint {
+    //timing point
+    if p_tokens.len() != 8 {
+      return Err(anyhow!("[create] timing: incorrect format {}", p));
+    }
+  
+    let time = p_tokens[0].parse::<i32>()?;
+    let beatlength = p_tokens[1].parse::<f32>()?;
+    let meter = p_tokens[2].parse::<i32>()?;
+    let sampleset = p_tokens[3].parse::<i32>()?;
+    let sampleindex = p_tokens[4].parse::<i32>()?;
+    let volume = p_tokens[5].parse::<i32>()?;
+    let uninherited = p_tokens[6].parse::<i32>()?;
+    let effects = p_tokens[7].parse::<i32>()?;
+
+    MapObject{class: uninherited, time: time, beatlength: beatlength, meter: meter, sampleset: sampleset, sampleindex: sampleindex, volume: volume, uninherited: uninherited, effects: effects, data: p}
+  } else {
+    //hit point
+    if p_tokens.len() < 2 {
+      return Err(anyhow!("[create] hit: incorrect format {}", p));
+    }
+
+    let time = p_tokens[2].parse::<i32>()?;
+
+    MapObject{class: 3, time: time, data: String::from(""), ..Default::default()}
+  };
+
+  return Ok(map_obj);
 }
 
 fn read_lines<P>(full_path: P) -> io::Result<io::Lines<io::BufReader<File>>> where P: AsRef<Path>, {
