@@ -27,18 +27,6 @@ pub struct MapObject {
   data: String,
 }
 
-/*
-impl Default for MapObject {
-  fn default() -> MapObject {
-    MapObject {
-      class: 0,
-      time: 0,
-      beatlength: 0,
-    }
-  }
-}
-*/
-
 #[derive(Default, NwgUi)]
 pub struct SVT {
   //TODO make this pixel-perfect pretty
@@ -51,26 +39,41 @@ pub struct SVT {
   inherited_text: nwg::TextBox,
 
   //apply
-  #[nwg_control(size: (100, 85), position: (5, 60))]
+  #[nwg_control(size: (50, 85), position: (5, 60))]
   apply_frame: nwg::Frame,
 
-  #[nwg_control(text: "Apply to:", size: (95, 20), position: (2, 0), parent: apply_frame)]
+  #[nwg_control(text: "Apply:", size: (45, 20), position: (2, 0), parent: apply_frame)]
   apply_label: nwg::Label,
 
+  //toggles sv changes
+  #[nwg_control(text: "SV", size: (95, 20), position: (2, 20), check_state: CheckBoxState::Checked, parent: apply_frame)]
+  sv_check: nwg::CheckBox,
+
+  //toggles vol changes
+  #[nwg_control(text: "Vol", size: (95, 20), position: (2, 40), check_state: CheckBoxState::Checked, parent: apply_frame)]
+  vol_check: nwg::CheckBox,
+
+  //apply to
+  #[nwg_control(size: (70, 85), position: (54, 60))]
+  apply_to_frame: nwg::Frame,
+
+  #[nwg_control(text: "To:", size: (65, 20), position: (2, 0), parent: apply_to_frame)]
+  apply_to_label: nwg::Label,
+
   //toggles note changes
-  #[nwg_control(text: "Hits", size: (95, 20), position: (2, 20), check_state: CheckBoxState::Checked, parent: apply_frame)]
+  #[nwg_control(text: "Hits", size: (95, 20), position: (2, 20), check_state: CheckBoxState::Checked, parent: apply_to_frame)]
   hit_check: nwg::CheckBox,
 
   //toggles barline changes
-  #[nwg_control(text: "Barlines", size: (95, 20), position: (2, 40), check_state: CheckBoxState::Checked, parent: apply_frame)]
+  #[nwg_control(text: "Barlines", size: (95, 20), position: (2, 40), check_state: CheckBoxState::Checked, parent: apply_to_frame)]
   barline_check: nwg::CheckBox,
 
   //toggles inh line changes
-  #[nwg_control(text: "Inherited lines", size: (95, 20), position: (2, 60), check_state: CheckBoxState::Unchecked, parent: apply_frame)]
+  #[nwg_control(text: "Inh. lines", size: (95, 20), position: (2, 60), check_state: CheckBoxState::Unchecked, parent: apply_to_frame)]
   inh_check: nwg::CheckBox,
 
   //options
-  #[nwg_control(size: (185, 85), position: (110, 60))]
+  #[nwg_control(size: (165, 85), position: (130, 60))]
   options_frame: nwg::Frame,
 
   #[nwg_control(text: "Options:", size: (95, 20), position: (2, 0), parent: options_frame)]
@@ -98,11 +101,11 @@ pub struct SVT {
   exponent_label: nwg::Label,
 
   //toggles end line/start line BPM
-  #[nwg_control(text: "Ignore end BPM", size: (105, 20), position: (75, 20), check_state: CheckBoxState::Unchecked, parent: options_frame)]
+  #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: CheckBoxState::Unchecked, parent: options_frame)]
   eq_bpm_check: nwg::CheckBox,
 
   //toggles exponential mode
-  #[nwg_control(text: "Exponential SV", size: (105, 20), position: (75, 40), check_state: CheckBoxState::Unchecked, parent: options_frame)]
+  #[nwg_control(text: "Exp. SV", size: (105, 20), position: (75, 60), check_state: CheckBoxState::Unchecked, parent: options_frame)]
   exponential_check: nwg::CheckBox,
 
   //select map button
@@ -197,6 +200,10 @@ impl SVT {
     let start_obj = create_map_object(start_line.to_string(), true).context("[apply] timing point format error")?;
     let end_obj = create_map_object(end_line.to_string(), true).context("[apply] timing point format error")?;
 
+    if (self.sv_check.check_state(), self.vol_check.check_state()) == (nwg::CheckBoxState::Unchecked, nwg::CheckBoxState::Unchecked) {
+      return Err(anyhow!("[apply] nothing to apply (sv, vol)"));
+    }
+
     //determine bpm at starting/ending point
     let mut s_bpm = 160.0;
     let mut e_bpm = 160.0;
@@ -241,9 +248,11 @@ impl SVT {
     let v_per_ms = v_diff as f32 / t_diff as f32;
 
     let mut bpm = 160.0;
+    let mut beatlength = -100.0;
     let mut meter = 4;
     let mut sample_set = 0;
     let mut sample_index = 0;
+    let mut volume = 100;
     let mut effects = 0;
 
     for obj in self.all_objs.borrow().iter() {
@@ -252,14 +261,15 @@ impl SVT {
         //uninherited point
         bpm = 60000.0 / obj.beatlength;
         meter = obj.meter;
-        sample_set = obj.sampleset;
-        sample_index = obj.sampleindex;
-        effects = obj.effects;
         continue;
-      } else if obj.class == 0 {
-        //inherited point
+      }
+      
+      if obj.class == 0 || obj.class == 1 {
+        //either uninherited or inherited point
+        beatlength = obj.beatlength;
         sample_set = obj.sampleset;
         sample_index = obj.sampleindex;
+        volume = obj.volume;
         effects = obj.effects;
       }
 
@@ -276,8 +286,23 @@ impl SVT {
         };
 
         let new_b = -100.0 / (new_sv / bpm);
-        let new_v = (start_obj.volume as f32 + (obj_time - start_obj.time) as f32 * v_per_ms) as u32;
-        let new_point = format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, new_v, 0, effects);
+        let new_v = ((start_obj.volume as f32 + (obj_time - start_obj.time) as f32 * v_per_ms)).round() as u32;
+        let new_point = match (self.sv_check.check_state(), self.vol_check.check_state()) {
+          //sv and vol
+          (nwg::CheckBoxState::Checked, nwg::CheckBoxState::Checked) => {
+            format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, new_v, 0, effects)
+          },
+          //sv and no vol
+          (nwg::CheckBoxState::Checked, nwg::CheckBoxState::Unchecked) => {
+            format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, volume, 0, effects)
+          },
+          //no sv and vol
+          (nwg::CheckBoxState::Unchecked, nwg::CheckBoxState::Checked) => {
+            format!("{},{},{},{},{},{},{},{}", new_t, beatlength, meter, sample_set, sample_index, new_v, 0, effects)
+          },
+          //no sv, no vol - should not reach this point
+          _ => {format!("")},
+        };
 
         match obj.class {
           0 => {
