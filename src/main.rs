@@ -6,6 +6,8 @@ extern crate native_windows_derive as nwd;
 use anyhow::{anyhow, Result, Context};
 use nwd::NwgUi;
 use nwg::NativeUi;
+use serde::{Serialize, Deserialize};
+
 use std::{cell::RefCell};
 use std::env;
 use std::fs::{self, File};
@@ -13,7 +15,7 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::cmp;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct MapObject {
   class: i32,
   time: i32,
@@ -27,6 +29,22 @@ pub struct MapObject {
   data: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct AppOptions {
+  map: String,
+  sv: bool,
+  vol: bool,
+  hits: bool,
+  barlines: bool,
+  inh_lines: bool,
+  offset: String,
+  buffer: String,
+  exp: String,
+  ignore_bpm: bool,
+  exp_sv: bool,
+  experimental: String,
+}
+
 #[derive(Default, NwgUi)]
 pub struct SVT {
   //TODO make this pixel-perfect pretty
@@ -35,11 +53,11 @@ pub struct SVT {
   window: nwg::Window,
 
   //timing point input
-  #[nwg_control(text: "", size: (290, 50), position: (5,5), flags: "VISIBLE|AUTOVSCROLL|TAB_STOP")]
+  #[nwg_control(text: "", size: (290, 80), position: (5,5), flags: "VISIBLE|AUTOVSCROLL|TAB_STOP")]
   inherited_text: nwg::TextBox,
 
   //apply
-  #[nwg_control(size: (50, 85), position: (5, 60))]
+  #[nwg_control(size: (50, 85), position: (5, 90))]
   apply_frame: nwg::Frame,
 
   #[nwg_control(text: "Apply:", size: (45, 20), position: (2, 0), parent: apply_frame)]
@@ -54,7 +72,7 @@ pub struct SVT {
   vol_check: nwg::CheckBox,
 
   //apply to
-  #[nwg_control(size: (70, 85), position: (54, 60))]
+  #[nwg_control(size: (70, 85), position: (54, 90))]
   apply_to_frame: nwg::Frame,
 
   #[nwg_control(text: "To:", size: (65, 20), position: (2, 0), parent: apply_to_frame)]
@@ -73,7 +91,7 @@ pub struct SVT {
   inh_check: nwg::CheckBox,
 
   //options
-  #[nwg_control(size: (165, 85), position: (130, 60))]
+  #[nwg_control(size: (165, 85), position: (130, 90))]
   options_frame: nwg::Frame,
 
   #[nwg_control(text: "Options:", size: (95, 20), position: (2, 0), parent: options_frame)]
@@ -109,27 +127,27 @@ pub struct SVT {
   exponential_check: nwg::CheckBox,
 
   //select map button
-  #[nwg_control(text: "Select Mapfile", size: (102, 25), position: (4, 185))]
+  #[nwg_control(text: "Select Map", size: (87, 25), position: (4, 185))]
   #[nwg_events( OnButtonClick: [SVT::open_file_browser] )]
   open_button: nwg::Button,
 
   //input map filename
-  #[nwg_control(text: "", size: (185, 23), position: (110, 186), flags: "VISIBLE|DISABLED")]
+  #[nwg_control(text: "", size: (200, 23), position: (95, 186), flags: "VISIBLE|DISABLED")]
   in_filename: nwg::TextInput,
 
   //toggles preview
-  #[nwg_control(text: "Preview Output", size: (102, 25), position: (5, 215), check_state: CheckBoxState::Checked)]
+  #[nwg_control(text: "Preview Diff", size: (87, 25), position: (5, 215), check_state: CheckBoxState::Checked)]
   #[nwg_events(OnButtonClick: [SVT::fill_out_filename])]
   preview_check: nwg::CheckBox,
   
   //output map filename
-  #[nwg_control(text: "", size: (185, 23), position: (110, 216))]
+  #[nwg_control(text: "", size: (200, 23), position: (95, 216))]
   out_filename: nwg::TextInput,
   
   //place apply button near bottom
-  #[nwg_control(text: "Apply", size: (292, 25), position: (4, 245))]
+  #[nwg_control(text: "Apply", size: (292, 25), position: (4, 245), flags: "VISIBLE|DISABLED")]
   #[nwg_events( OnButtonClick: [SVT::apply_changes] )]
-  hello_button: nwg::Button,
+  apply_button: nwg::Button,
 
   //place status bar at the very bottom
   #[nwg_control(text: "[map] no map selected (Select Mapfile or drag one in)")]
@@ -147,6 +165,14 @@ impl SVT {
   fn apply_changes(&self) {
     //refresh file before doing anything
     self.load_file();
+
+    //[debug] print out all objects in their current order
+    /*
+    for map_obj in self.all_objs.borrow().iter() {
+      if map_obj.data.trim() == "" {continue;}
+      println!("{}", map_obj.data.trim());
+    }
+    */
 
     //clear any previously applied points
     self.new_objs.borrow_mut().clear();
@@ -188,6 +214,11 @@ impl SVT {
       return;
     }
 
+    if self.save_config().is_err() {
+      self.status.set_text(0, &format!("[apply] couldn't save config"));
+      return;
+    }
+
     //update status bar with change count on success
     self.status.set_text(0, &format!("[apply] {} changes applied", self.new_objs.borrow().len()));
   }
@@ -208,11 +239,11 @@ impl SVT {
     let mut s_bpm = 160.0;
     let mut e_bpm = 160.0;
     for obj in self.all_objs.borrow().iter() {
-      if obj.class == 1 {
-        if obj.time < start_obj.time {
+      if obj.class == 0 {
+        if obj.time <= start_obj.time {
           s_bpm = 60000.0 / obj.beatlength;
         }
-        if obj.time < end_obj.time {
+        if obj.time <= end_obj.time {
           e_bpm = 60000.0 /  obj.beatlength;
         }
       }
@@ -257,14 +288,20 @@ impl SVT {
 
     for obj in self.all_objs.borrow().iter() {
       //set fields before performing calculations
-      if obj.class == 1 {
+      if obj.class == 0 {
         //uninherited point
         bpm = 60000.0 / obj.beatlength;
         meter = obj.meter;
+
+        beatlength = obj.beatlength;
+        sample_set = obj.sampleset;
+        sample_index = obj.sampleindex;
+        volume = obj.volume;
+        effects = obj.effects;
         continue;
       }
       
-      if obj.class == 0 || obj.class == 1 {
+      if obj.class == 1 {
         //either uninherited or inherited point
         beatlength = obj.beatlength;
         sample_set = obj.sampleset;
@@ -305,14 +342,14 @@ impl SVT {
         };
 
         match obj.class {
-          0 => {
+          0 => {println!("[apply] shouldn't get here, class 1");}, //uninherited line
+          1 => {
             //inherited line
             if self.inh_check.check_state() == nwg::CheckBoxState::Checked {
               println!("[new] inh {}", new_point);
               self.new_objs.borrow_mut().push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
             }
           },
-          1 => {println!("[apply] shouldn't get here, class 1");}, //uninherited line
           2 => {
             //barline
             if self.barline_check.check_state() == nwg::CheckBoxState::Checked {
@@ -337,6 +374,12 @@ impl SVT {
   }
   
   fn close_window(&self) {
+    //match data {
+    //  nwg::EventData::OnWindowClose(close_data) => {
+    //    println!("{:?}", data);
+    //  },
+    //  _ => {},
+    //}
     nwg::stop_thread_dispatch();
   }
 
@@ -466,7 +509,16 @@ impl SVT {
         }
       }
     }
-    self.all_objs.borrow_mut().sort_by_key(|k| k.time);
+
+    self.all_objs.borrow_mut().sort_by_key(|k| (k.time, k.class));
+
+    if self.save_config().is_err() {
+      self.status.set_text(0, &format!("[apply] couldn't save config"));
+      return;
+    }
+
+    self.apply_button.set_enabled(true);
+    
     self.status.set_text(0, &format!("editing {}", Path::new(&filename).file_name().unwrap().to_str().unwrap()));
   }
 
@@ -491,7 +543,7 @@ impl SVT {
   fn write_output_points(&self) -> Result<()> {
     //sort new objects in chronological order
     //TODO inherited vs uninherited should not apply here, these are the new points
-    self.new_objs.borrow_mut().sort_by_key(|k| (k.time, k.uninherited));
+    self.new_objs.borrow_mut().sort_by_key(|k| (k.time, k.class));
 
     //build up a vector with all old and new points sorted in chronological, then uninherited > inherited order
     let mut out_objs: Vec<MapObject> = Vec::new();
@@ -502,7 +554,9 @@ impl SVT {
         out_objs.push(obj.clone());
       }
     }
-    out_objs.sort_by_key(|k| (k.time, k.uninherited));
+
+    //uninherited ^ 1 indicates priority, while (time, uninherited) should be unique
+    out_objs.sort_by_key(|k| (k.time, k.uninherited ^ 1));
     out_objs.dedup_by_key(|k| (k.time, k.uninherited));
 
     //write out new file
@@ -557,6 +611,58 @@ impl SVT {
     let _ = write!(&mut out_file, "{}", out_string);
     Ok(())
   }
+
+  fn load_config(&self) -> Result<()> {
+    // read file
+    let app_options_string = fs::read_to_string("svt_config.txt")?;    
+    let app_options = serde_json::from_str(&app_options_string).unwrap_or(AppOptions{offset: String::from("0"), buffer: String::from("3"), exp: String::from("0.5"), ..Default::default()});
+
+    self.in_filename.set_text(&app_options.map);
+    self.sv_check.set_check_state(if app_options.sv {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
+    self.vol_check.set_check_state(if app_options.vol {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
+    self.hit_check.set_check_state(if app_options.hits {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
+    self.barline_check.set_check_state(if app_options.barlines {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
+    self.inh_check.set_check_state(if app_options.inh_lines {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
+    self.offset_text.set_text(&app_options.offset);
+    self.buffer_text.set_text(&app_options.buffer);
+    self.exponent_text.set_text(&app_options.exp);
+    self.eq_bpm_check.set_check_state(if app_options.ignore_bpm {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
+    self.exponential_check.set_check_state(if app_options.exp_sv {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
+    
+    self.fill_out_filename();
+    if self.in_filename.text().len() == 0 {
+      self.apply_button.set_enabled(false);
+    } else {
+      self.load_file()
+    }
+
+    Ok(())
+  }
+
+  fn save_config(&self) -> Result<()> {
+    let mut out_string = String::new();
+    let mut out_file = File::create("svt_config.txt").unwrap();
+
+    let app_options = AppOptions{
+      map: self.in_filename.text(),
+      sv: if self.sv_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
+      vol: if self.vol_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
+      hits: if self.hit_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
+      barlines: if self.barline_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
+      inh_lines: if self.inh_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
+      offset: self.offset_text.text(),
+      buffer: self.buffer_text.text(),
+      exp: self.exponent_text.text(),
+      ignore_bpm: if self.eq_bpm_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
+      exp_sv: if self.exponential_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
+      experimental: String::from(""),
+    };
+
+    out_string += &serde_json::to_string(&app_options).unwrap();
+
+    let _ = write!(&mut out_file, "{}", out_string);
+    Ok(())
+  }
 }
 
 fn create_map_object(p: String, timingpoint: bool) -> Result<MapObject> {
@@ -577,7 +683,7 @@ fn create_map_object(p: String, timingpoint: bool) -> Result<MapObject> {
     let uninherited = p_tokens[6].parse::<i32>()?;
     let effects = p_tokens[7].parse::<i32>()?;
 
-    MapObject{class: uninherited, time: time, beatlength: beatlength, meter: meter, sampleset: sampleset, sampleindex: sampleindex, volume: volume, uninherited: uninherited, effects: effects, data: p}
+    MapObject{class: uninherited ^ 1, time: time, beatlength: beatlength, meter: meter, sampleset: sampleset, sampleindex: sampleindex, volume: volume, uninherited: uninherited, effects: effects, data: p}
   } else {
     //hit point
     if p_tokens.len() < 2 {
@@ -619,6 +725,11 @@ fn main() {
 
   let app = SVT::build_ui(Default::default()).expect("[main] failed to build UI");
   app.window.set_icon(Some(&icon));
+
+  if app.load_config().is_err() {
+    println!("[load] couldn't load config properly");
+    app.apply_button.set_enabled(false);
+  }
 
   nwg::dispatch_thread_events();
 }
