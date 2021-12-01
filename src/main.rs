@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result, Context};
 use nwd::NwgUi;
 use nwg::NativeUi;
 use serde::{Serialize, Deserialize};
+use libxch;
 
 use std::{cell::RefCell};
 use std::env;
@@ -136,7 +137,7 @@ pub struct SVT {
   in_filename: nwg::TextInput,
 
   //toggles preview
-  #[nwg_control(text: "Preview Diff", size: (87, 25), position: (5, 215), check_state: CheckBoxState::Checked)]
+  #[nwg_control(text: "Preview Diff", size: (87, 25), position: (5, 215), check_state: CheckBoxState::Unchecked)]
   #[nwg_events(OnButtonClick: [SVT::fill_out_filename])]
   preview_check: nwg::CheckBox,
   
@@ -145,9 +146,14 @@ pub struct SVT {
   out_filename: nwg::TextInput,
   
   //place apply button near bottom
-  #[nwg_control(text: "Apply", size: (292, 25), position: (4, 245), flags: "VISIBLE|DISABLED")]
+  #[nwg_control(text: "Apply", size: (242, 25), position: (4, 245), flags: "VISIBLE|DISABLED")]
   #[nwg_events( OnButtonClick: [SVT::apply_changes] )]
   apply_button: nwg::Button,
+
+  //place undo/redo button near bottom
+  #[nwg_control(text: "Undo", size: (45, 25), position: (251, 245), flags: "VISIBLE|DISABLED")]
+  #[nwg_events( OnButtonClick: [SVT::undo] )]
+  undo_button: nwg::Button,
 
   //place status bar at the very bottom
   #[nwg_control(text: "[map] no map selected (Select Mapfile or drag one in)")]
@@ -218,6 +224,8 @@ impl SVT {
       self.status.set_text(0, &format!("[apply] couldn't save config"));
       return;
     }
+
+    self.undo_button.set_enabled(true);
 
     //update status bar with change count on success
     self.status.set_text(0, &format!("[apply] {} changes applied", self.new_objs.borrow().len()));
@@ -518,7 +526,7 @@ impl SVT {
     }
 
     self.apply_button.set_enabled(true);
-    
+
     self.status.set_text(0, &format!("editing {}", Path::new(&filename).file_name().unwrap().to_str().unwrap()));
   }
 
@@ -610,6 +618,20 @@ impl SVT {
     let mut out_file = File::create(out_filename).unwrap();
     let _ = write!(&mut out_file, "{}", out_string);
     Ok(())
+  }
+
+  //assumes a map is loaded and a change has been applied already
+  fn undo(&self) {
+    if let Err(e) = libxch::xch(self.in_filename.text(), "backup.osu") {
+      self.status.set_text(0, &format!("[undo] failed {}", e.to_string()));
+    }
+    //fs::copy(self.in_filename.text(), "temp.osu")?;
+    //fs::copy("backup.osu", self.in_filename.text())?;
+    //fs::copy("temp.osu", "backup.osu")?;
+    //fs::remove_file("temp.osu")?;
+
+    self.undo_button.set_enabled(false);
+    self.status.set_text(0, &format!("[undo] successful"));
   }
 
   fn load_config(&self) -> Result<()> {
@@ -730,6 +752,8 @@ fn main() {
     println!("[load] couldn't load config properly");
     app.apply_button.set_enabled(false);
   }
+
+  app.undo_button.set_enabled(false);
 
   nwg::dispatch_thread_events();
 }
