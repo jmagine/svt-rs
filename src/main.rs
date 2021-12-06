@@ -95,7 +95,7 @@ pub struct SVT {
   #[nwg_control(size: (165, 85), position: (130, 90))]
   options_frame: nwg::Frame,
 
-  #[nwg_control(text: "Options:", size: (95, 20), position: (2, 0), parent: options_frame)]
+  #[nwg_control(text: "Advanced Options:", size: (195, 20), position: (2, 0), parent: options_frame)]
   options_label: nwg::Label,
 
   //offset time
@@ -754,6 +754,28 @@ fn main() {
   }
 
   app.undo_button.set_enabled(false);
+  
+  let mut tooltip = nwg::Tooltip::default();
+  let _res_ = nwg::Tooltip::builder()
+    .register(&app.inherited_text, "Paste timing point start/end pair(s) here. Copy/paste from timing panel. These timing points contain the start/end times, SVs, and volumes which are interpolated for the selected objects. (Example format: 111376,-76.92308,4,1,0,100,0,1)")
+    .register(&app.sv_check, "Change slider velocity smoothly for selected objects (hits/barlines/inh. lines)")
+    .register(&app.vol_check, "Change volume smoothly for selected objects (hits/barlines/inh. lines)")
+    .register(&app.hit_check, "Change hitobjects (notes, spinners, sliders) between start/end points")
+    .register(&app.barline_check, "Change barlines (big white lines) between start/end points")
+    .register(&app.inh_check, "Change current inherited lines between start/end points")
+    .register(&app.offset_label, "(integer) Place new timing points at offset (in ms) from map object (negative offset for before, positive for after)")
+    .register(&app.buffer_label, "(integer) Include map objects (in ms) before and after the start/end timing points, useful if objects are not perfectly snapped")
+    .register(&app.exponent_label, "(decimal) Exponent for exponential SV. Recommended values are [0.5, 1) for slowdowns and (1.0, 2.0] for speedups. Applied following a (sv_diff) * (t / t_diff)^exp curve")
+    .register(&app.eq_bpm_check, "End timing point SV is normally relative to end timing point BPM, but if checked, can be made relative to start timing point BPM")
+    .register(&app.exponential_check, "Enable exponential SV using the exp. factor (if disabled, will use linear SV)")
+    .register(&app.open_button, "Select map to change")
+    .register(&app.in_filename, "Map being edited")
+    .register(&app.out_filename, "Output location")
+    .register(&app.preview_check, "If enabled, creates a preview diff alongside your current diff which shows how the changes would potentially look without touching the original")
+    .register(&app.apply_button, "Apply SV/vol changes")
+    .register(&app.undo_button, "Undo most recent change")
+    .build(&mut tooltip);
+  tooltip.set_delay_time(Some(50));
 
   nwg::dispatch_thread_events();
 }

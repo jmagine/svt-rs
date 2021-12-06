@@ -246,8 +246,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "svt-0_8_0"
-version = "0.8.0"
+name = "svt-0_8_2"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "native-windows-derive",
