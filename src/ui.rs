@@ -108,7 +108,7 @@ pub struct UI {
 
   //toggles end line/start line BPM
   #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: Unchecked, parent: options_frame)]
-  pub eq_bpm_check: nwg::CheckBox,
+  pub ign_bpm_check: nwg::CheckBox,
 
   //toggles exponential mode
   #[nwg_control(text: "Exp. SV", size: (105, 20), position: (75, 60), check_state: Unchecked, parent: options_frame)]
@@ -179,7 +179,7 @@ impl UI {
     self.load_file();
 
     //[debug] print out all objects in their current order
-    //self.svt.borrow().print_debug();
+    self.svt.borrow().print_debug();
 
     let cmd = self.inherited_text.text();
     let mut lines = cmd.split_whitespace();
@@ -335,7 +335,7 @@ impl UI {
     self.offset_text.set_text(&app_options.offset);
     self.buffer_text.set_text(&app_options.buffer);
     self.exponent_text.set_text(&app_options.exp);
-    self.eq_bpm_check.set_check_state(if app_options.ignore_bpm {Checked} else {Unchecked});
+    self.ign_bpm_check.set_check_state(if app_options.ignore_bpm {Checked} else {Unchecked});
     self.exponential_check.set_check_state(if app_options.exp_sv {Checked} else {Unchecked});
     
     self.fill_out_filename();
@@ -362,7 +362,7 @@ impl UI {
       offset: self.offset_text.text(),
       buffer: self.buffer_text.text(),
       exp: self.exponent_text.text(),
-      ignore_bpm: self.eq_bpm_check.check_state() == Checked,
+      ignore_bpm: self.ign_bpm_check.check_state() == Checked,
       exp_sv: self.exponential_check.check_state() == Checked,
       experimental: String::from(""),
     };

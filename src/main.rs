@@ -1,4 +1,7 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(
+  all(not(debug_assertions), target_os = "windows"),
+  windows_subsystem = "windows"
+)]
 
 extern crate native_windows_gui as nwg;
 use nwg::NativeUi;
@@ -35,7 +38,7 @@ fn main() {
     .register(&app.offset_label, "(integer) Place new timing points at offset (in ms) from map object (negative offset for before, positive for after)")
     .register(&app.buffer_label, "(integer) Include map objects (in ms) before and after the start/end timing points, useful if objects are not perfectly snapped")
     .register(&app.exponent_label, "(decimal) Exponent for exponential SV. Recommended values are [0.5, 1) for slowdowns and (1.0, 2.0] for speedups. Applied following a (sv_diff) * (t / t_diff)^exp curve")
-    .register(&app.eq_bpm_check, "End timing point SV is normally relative to end timing point BPM, but if checked, can be made relative to start timing point BPM")
+    .register(&app.ign_bpm_check, "End timing point SV is normally relative to end timing point BPM, but if checked, can be made relative to start timing point BPM")
     .register(&app.exponential_check, "Enable exponential SV using the exp. factor (if disabled, will use linear SV)")
     .register(&app.open_button, "Select map to change")
     .register(&app.in_filename, "Map being edited")

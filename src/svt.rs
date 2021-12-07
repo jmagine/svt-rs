@@ -62,7 +62,7 @@ impl SVT {
 
     //convert beatlength values to sv values
     let s_sv_raw = -100.0 * s_bpm / start_obj.beatlength;
-    let e_sv_raw = if ui_ctrl.eq_bpm_check.check_state() == Checked {
+    let e_sv_raw = if ui_ctrl.ign_bpm_check.check_state() == Checked {
       -100.0 * s_bpm / end_obj.beatlength
     } else {
       -100.0 * e_bpm / end_obj.beatlength
@@ -91,6 +91,7 @@ impl SVT {
 
     //TODO update these with the real default values
     //init with something here to prevent catastrophic failure before first uninherited line
+    let mut last_uni_time = 0;
     let mut bpm = 160.0;
     let mut beatlength = -100.0;
     let mut meter = 4;
@@ -99,10 +100,20 @@ impl SVT {
     let mut volume = 100;
     let mut effects = 0;
 
+    let mut kiai_change_time = 0;
+
     for obj in self.all_objs.iter() {
       //set fields before performing calculations
       if obj.class == 0 {
         //uninherited point
+
+        //check whether kiai change occurs
+        if obj.effects & 1 != effects & 1 {
+          kiai_change_time = obj.time;
+        }
+
+        last_uni_time = obj.time;
+
         bpm = 60000.0 / obj.beatlength;
         meter = obj.meter;
 
@@ -112,10 +123,14 @@ impl SVT {
         volume = obj.volume;
         effects = obj.effects;
         continue;
-      }
-      
-      if obj.class == 1 {
-        //either uninherited or inherited point
+      } else if obj.class == 1 {
+        //inherited point
+
+        //check whether kiai change occurs
+        if obj.effects & 1 != effects & 1 {
+          kiai_change_time = obj.time;
+        }
+
         beatlength = obj.beatlength;
         sample_set = obj.sampleset;
         sample_index = obj.sampleindex;
@@ -126,7 +141,8 @@ impl SVT {
       //perform general calculations here for inher, barlines, hitobjects
       let obj_time = obj.time;
       if obj_time >= start_obj.time - t_buf && obj_time <= end_obj.time + t_buf {
-        let new_t = obj_time + t_off;
+        //ensure time is set both after any uninherited points or kiai time changes within offset window
+        let new_t = cmp::max(cmp::max(obj_time + t_off, last_uni_time), kiai_change_time);
         let new_sv = if ui_ctrl.exponential_check.check_state() == Checked {
           //exponential
           s_sv_raw + sv_diff * f32::powf(cmp::max(0, obj_time - start_obj.time) as f32 / t_diff as f32, exp)
@@ -226,7 +242,7 @@ impl SVT {
                   //add barlines since last timing point
                   while bar_time + bar_inc < map_obj.time as f32 {
                     bar_time += bar_inc;
-                    self.all_objs.push(MapObject{time: bar_time as i32, class: 2, data: String::from(""), ..Default::default()});
+                    self.all_objs.push(MapObject{time: bar_time.round() as i32, class: 2, data: String::from(""), ..Default::default()});
                   }
 
                   //use uninherited point properties to calculate barline times
