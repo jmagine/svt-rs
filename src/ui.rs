@@ -1,5 +1,6 @@
 extern crate native_windows_gui as nwg;
 extern crate native_windows_derive as nwd;
+use nwg::CheckBoxState::{Checked, Unchecked};
 use nwd::NwgUi;
 
 use anyhow::Result;
@@ -9,6 +10,7 @@ use libxch;
 use std::{cell::RefCell};
 use std::cmp;
 use std::env;
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
@@ -50,11 +52,11 @@ pub struct UI {
   pub apply_label: nwg::Label,
 
   //toggles sv changes
-  #[nwg_control(text: "SV", size: (95, 20), position: (2, 20), check_state: CheckBoxState::Checked, parent: apply_frame)]
+  #[nwg_control(text: "SV", size: (95, 20), position: (2, 20), check_state: Checked, parent: apply_frame)]
   pub sv_check: nwg::CheckBox,
 
   //toggles vol changes
-  #[nwg_control(text: "Vol", size: (95, 20), position: (2, 40), check_state: CheckBoxState::Checked, parent: apply_frame)]
+  #[nwg_control(text: "Vol", size: (95, 20), position: (2, 40), check_state: Checked, parent: apply_frame)]
   pub vol_check: nwg::CheckBox,
 
   //outline around the apply to controls
@@ -65,15 +67,15 @@ pub struct UI {
   pub apply_to_label: nwg::Label,
 
   //toggles note changes
-  #[nwg_control(text: "Hits", size: (95, 20), position: (2, 20), check_state: CheckBoxState::Checked, parent: apply_to_frame)]
+  #[nwg_control(text: "Hits", size: (95, 20), position: (2, 20), check_state: Checked, parent: apply_to_frame)]
   pub hit_check: nwg::CheckBox,
 
   //toggles barline changes
-  #[nwg_control(text: "Barlines", size: (95, 20), position: (2, 40), check_state: CheckBoxState::Checked, parent: apply_to_frame)]
+  #[nwg_control(text: "Barlines", size: (95, 20), position: (2, 40), check_state: Checked, parent: apply_to_frame)]
   pub barline_check: nwg::CheckBox,
 
   //toggles inh line changes
-  #[nwg_control(text: "Inh. lines", size: (95, 20), position: (2, 60), check_state: CheckBoxState::Unchecked, parent: apply_to_frame)]
+  #[nwg_control(text: "Inh. lines", size: (95, 20), position: (2, 60), check_state: Unchecked, parent: apply_to_frame)]
   pub inh_check: nwg::CheckBox,
 
   //outline around advanced controls
@@ -105,11 +107,11 @@ pub struct UI {
   pub exponent_label: nwg::Label,
 
   //toggles end line/start line BPM
-  #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: CheckBoxState::Unchecked, parent: options_frame)]
+  #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: Unchecked, parent: options_frame)]
   pub eq_bpm_check: nwg::CheckBox,
 
   //toggles exponential mode
-  #[nwg_control(text: "Exp. SV", size: (105, 20), position: (75, 60), check_state: CheckBoxState::Unchecked, parent: options_frame)]
+  #[nwg_control(text: "Exp. SV", size: (105, 20), position: (75, 60), check_state: Unchecked, parent: options_frame)]
   pub exponential_check: nwg::CheckBox,
 
   //select map button
@@ -122,7 +124,7 @@ pub struct UI {
   pub in_filename: nwg::TextInput,
 
   //toggles preview
-  #[nwg_control(text: "Preview Diff", size: (87, 25), position: (5, 215), check_state: CheckBoxState::Unchecked)]
+  #[nwg_control(text: "Preview Diff", size: (87, 25), position: (5, 215), check_state: Unchecked)]
   #[nwg_events(OnButtonClick: [UI::fill_out_filename])]
   pub preview_check: nwg::CheckBox,
   
@@ -160,14 +162,15 @@ impl UI {
       .source_bin(Some(icon_bytes))
       .strict(true)
       .build(&mut icon);
-
     self.window.set_icon(Some(&icon));
 
+    //load config and sset apply button accordingly
     if self.load_config().is_err() {
       println!("[load] couldn't load config properly");
       self.apply_button.set_enabled(false);
     }
 
+    //always disable undo button by default
     self.undo_button.set_enabled(false);
   }
 
@@ -176,12 +179,7 @@ impl UI {
     self.load_file();
 
     //[debug] print out all objects in their current order
-    /*
-    for map_obj in self.svt.borrow().all_objs.iter() {
-      if map_obj.data.trim() == "" {continue;}
-      println!("{}", map_obj.data.trim());
-    }
-    */
+    //self.svt.borrow().print_debug();
 
     let cmd = self.inherited_text.text();
     let mut lines = cmd.split_whitespace();
@@ -194,6 +192,7 @@ impl UI {
       end_line = lines.next();
       if let (Some(start_l), Some(end_l)) = (start_line, end_line) {
         if let Err(err) = self.svt.borrow_mut().apply_timing(start_l, end_l, self) {
+          //if error is encountered, stop applying and update status bar
           println!("[apply] error applying timing {}->{}", start_l, end_l);
           self.status.set_text(0, &err.to_string());
           return;
@@ -205,17 +204,19 @@ impl UI {
     }
 
     //merge new points into old ones - delete old point if new one is identical
-    if let Err(err) = self.svt.borrow_mut().write_output_points(self.in_filename.text(), self.out_filename.text(), self.preview_check.check_state() == nwg::CheckBoxState::Checked) {
+    if let Err(err) = self.svt.borrow_mut().write_output_points(self.in_filename.text(), self.out_filename.text(), self.preview_check.check_state() == Checked) {
       println!("[apply] error writing output");
       self.status.set_text(0, &err.to_string());
       return;
     }
 
+    //save config after successful output point write
     if self.save_config().is_err() {
       self.status.set_text(0, &format!("[apply] couldn't save config"));
       return;
     }
 
+    //enable undo button
     self.undo_button.set_enabled(true);
 
     //update status bar with change count on success
@@ -223,12 +224,6 @@ impl UI {
   }
   
   fn close_window(&self) {
-    //match data {
-    //  nwg::EventData::OnWindowClose(close_data) => {
-    //    println!("{:?}", data);
-    //  },
-    //  _ => {},
-    //}
     nwg::stop_thread_dispatch();
   }
 
@@ -239,7 +234,7 @@ impl UI {
   }
 
   fn fill_out_filename(&self) {
-    if self.preview_check.check_state() == nwg::CheckBoxState::Checked {
+    if self.preview_check.check_state() == Checked {
       let in_filename = &self.in_filename.text();
 
       //prevent paths without parents or filenames from crashing
@@ -247,25 +242,21 @@ impl UI {
       let name_osu = Path::new(in_filename).file_name();
 
       //TODO check path is valid maybe?
-      //TODO clean this match statement up
-      match (folder, name_osu) {
-        (Some(folder), Some(name_osu)) => {
-          self.out_filename.set_text(&format!("{}/{}[{}].osu", folder.to_str().unwrap(), name_osu.to_str().unwrap().split("[").nth(0).unwrap(), "preview"));
-        },
-        _ => {
-          println!("[pre] path invalid");
-        },
+      if let (Some(folder), Some(name_osu)) = (folder, name_osu) {
+        self.out_filename.set_text(&format!("{}/{}[{}].osu", folder.to_str().unwrap(), name_osu.to_str().unwrap().split("[").nth(0).unwrap(), "preview"));
+      } else {
+        println!("[pre] path invalid");
       }
     } else {
       self.out_filename.set_text(&self.in_filename.text());
     }
   }
 
-  //load and parse .osu file line by line
+  //validate, load, and parse .osu file line by line
   fn load_file(&self) {
     let filename = self.in_filename.text();
 
-    //TODO this check is probably not sufficient. need additional validation
+    //should never happen
     if filename.len() == 0 {
       println!("[load] empty filename");
       return;
@@ -274,21 +265,19 @@ impl UI {
     //determine filename and extension
     let ext = Path::new(&filename).extension();
 
+    //skip any file that is not .osu
+    if ext != Some(OsStr::new("osu")) {
+      println!("[load] invalid file");
+      self.apply_button.set_enabled(false);
+      self.status.set_text(0, &format!("[load] please select a .osu file"));
+      return;
+    }
+
     let folder = String::from(Path::new(&filename).parent().unwrap().to_str().unwrap());
     println!("[load] folder: {}", folder);
 
-    //skip any file that is not .osu
-    match ext {
-      Some(str) => if str.to_str() != Some("osu") {
-        println!("[load] incorrect file type: .{}", str.to_str().unwrap());
-        return},
-      None => {
-        return
-      },
-    }
-
     println!("[load] loading {}", Path::new(&filename).file_name().unwrap().to_str().unwrap());
-    self.svt.borrow_mut().load_file(&filename);
+    self.svt.borrow_mut().load_osu(&filename);
 
     if self.save_config().is_err() {
       self.status.set_text(0, &format!("[apply] couldn't save config"));
@@ -338,16 +327,16 @@ impl UI {
     let app_options = serde_json::from_str(&app_options_string).unwrap_or(AppOptions{offset: String::from("0"), buffer: String::from("3"), exp: String::from("0.5"), ..Default::default()});
 
     self.in_filename.set_text(&app_options.map);
-    self.sv_check.set_check_state(if app_options.sv {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
-    self.vol_check.set_check_state(if app_options.vol {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
-    self.hit_check.set_check_state(if app_options.hits {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
-    self.barline_check.set_check_state(if app_options.barlines {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
-    self.inh_check.set_check_state(if app_options.inh_lines {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
+    self.sv_check.set_check_state(if app_options.sv {Checked} else {Unchecked});
+    self.vol_check.set_check_state(if app_options.vol {Checked} else {Unchecked});
+    self.hit_check.set_check_state(if app_options.hits {Checked} else {Unchecked});
+    self.barline_check.set_check_state(if app_options.barlines {Checked} else {Unchecked});
+    self.inh_check.set_check_state(if app_options.inh_lines {Checked} else {Unchecked});
     self.offset_text.set_text(&app_options.offset);
     self.buffer_text.set_text(&app_options.buffer);
     self.exponent_text.set_text(&app_options.exp);
-    self.eq_bpm_check.set_check_state(if app_options.ignore_bpm {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
-    self.exponential_check.set_check_state(if app_options.exp_sv {nwg::CheckBoxState::Checked} else {nwg::CheckBoxState::Unchecked});
+    self.eq_bpm_check.set_check_state(if app_options.ignore_bpm {Checked} else {Unchecked});
+    self.exponential_check.set_check_state(if app_options.exp_sv {Checked} else {Unchecked});
     
     self.fill_out_filename();
     if self.in_filename.text().len() == 0 {
@@ -365,16 +354,16 @@ impl UI {
 
     let app_options = AppOptions{
       map: self.in_filename.text(),
-      sv: if self.sv_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
-      vol: if self.vol_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
-      hits: if self.hit_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
-      barlines: if self.barline_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
-      inh_lines: if self.inh_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
+      sv: self.sv_check.check_state() == Checked,
+      vol: self.vol_check.check_state() == Checked,
+      hits: self.hit_check.check_state() == Checked,
+      barlines: self.barline_check.check_state() == Checked,
+      inh_lines: self.inh_check.check_state() == Checked,
       offset: self.offset_text.text(),
       buffer: self.buffer_text.text(),
       exp: self.exponent_text.text(),
-      ignore_bpm: if self.eq_bpm_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
-      exp_sv: if self.exponential_check.check_state() == nwg::CheckBoxState::Checked {true} else {false},
+      ignore_bpm: self.eq_bpm_check.check_state() == Checked,
+      exp_sv: self.exponential_check.check_state() == Checked,
       experimental: String::from(""),
     };
 

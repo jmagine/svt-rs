@@ -1,9 +1,11 @@
+use nwg::CheckBoxState::{Checked, Unchecked};
+
 use anyhow::{anyhow, Result, Context};
 
+use std::cmp;
 use std::fs::{self, File};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-
 
 use crate::ui;
 
@@ -38,13 +40,15 @@ impl SVT {
     let start_obj = create_map_object(start_line.to_string(), true).context("[apply] timing point format error")?;
     let end_obj = create_map_object(end_line.to_string(), true).context("[apply] timing point format error")?;
 
-    if (ui_ctrl.sv_check.check_state(), ui_ctrl.vol_check.check_state()) == (nwg::CheckBoxState::Unchecked, nwg::CheckBoxState::Unchecked) {
+    if (ui_ctrl.sv_check.check_state(), ui_ctrl.vol_check.check_state()) == (Unchecked, Unchecked) {
       return Err(anyhow!("[apply] nothing to apply (sv, vol)"));
     }
 
-    //determine bpm at starting/ending point
-    let mut s_bpm = 160.0;
-    let mut e_bpm = 160.0;
+    //TODO although all_objs is sorted at this point, sort can be moved here for clarity/guarantee
+
+    //initial pass of all map objects to determine bpm at starting/ending point
+    let mut s_bpm = 0.0;
+    let mut e_bpm = 0.0;
     for obj in self.all_objs.iter() {
       if obj.class == 0 {
         if obj.time <= start_obj.time {
@@ -58,7 +62,7 @@ impl SVT {
 
     //convert beatlength values to sv values
     let s_sv_raw = -100.0 * s_bpm / start_obj.beatlength;
-    let e_sv_raw = if ui_ctrl.eq_bpm_check.check_state() == nwg::CheckBoxState::Checked {
+    let e_sv_raw = if ui_ctrl.eq_bpm_check.check_state() == Checked {
       -100.0 * s_bpm / end_obj.beatlength
     } else {
       -100.0 * e_bpm / end_obj.beatlength
@@ -81,10 +85,12 @@ impl SVT {
     //compute change per time tick
     let t_diff = end_obj.time - start_obj.time;
     let sv_diff = e_sv_raw - s_sv_raw;
-    let v_diff = end_obj.volume - start_obj.volume;
+    let vol_diff = end_obj.volume - start_obj.volume;
     let sv_per_ms = sv_diff / t_diff as f32;
-    let v_per_ms = v_diff as f32 / t_diff as f32;
+    let vol_per_ms = vol_diff as f32 / t_diff as f32;
 
+    //TODO update these with the real default values
+    //init with something here to prevent catastrophic failure before first uninherited line
     let mut bpm = 160.0;
     let mut beatlength = -100.0;
     let mut meter = 4;
@@ -121,52 +127,54 @@ impl SVT {
       let obj_time = obj.time;
       if obj_time >= start_obj.time - t_buf && obj_time <= end_obj.time + t_buf {
         let new_t = obj_time + t_off;
-        let new_sv = if ui_ctrl.exponential_check.check_state() == nwg::CheckBoxState::Checked {
+        let new_sv = if ui_ctrl.exponential_check.check_state() == Checked {
           //exponential
-          s_sv_raw + sv_diff * f32::powf((obj_time - start_obj.time) as f32 / t_diff as f32, exp)
+          s_sv_raw + sv_diff * f32::powf(cmp::max(0, obj_time - start_obj.time) as f32 / t_diff as f32, exp)
         } else {
           //linear
           s_sv_raw + (obj_time - start_obj.time) as f32 * sv_per_ms
         };
 
         let new_b = -100.0 / (new_sv / bpm);
-        let new_v = ((start_obj.volume as f32 + (obj_time - start_obj.time) as f32 * v_per_ms)).round() as u32;
+        let new_vol = ((start_obj.volume as f32 + (obj_time - start_obj.time) as f32 * vol_per_ms)).round() as u32;
         let new_point = match (ui_ctrl.sv_check.check_state(), ui_ctrl.vol_check.check_state()) {
           //sv and vol
-          (nwg::CheckBoxState::Checked, nwg::CheckBoxState::Checked) => {
-            format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, new_v, 0, effects)
+          (Checked, Checked) => {
+            format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, new_vol, 0, effects)
           },
           //sv and no vol
-          (nwg::CheckBoxState::Checked, nwg::CheckBoxState::Unchecked) => {
+          (Checked, Unchecked) => {
             format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, volume, 0, effects)
           },
           //no sv and vol
-          (nwg::CheckBoxState::Unchecked, nwg::CheckBoxState::Checked) => {
-            format!("{},{},{},{},{},{},{},{}", new_t, beatlength, meter, sample_set, sample_index, new_v, 0, effects)
+          (Unchecked, Checked) => {
+            format!("{},{},{},{},{},{},{},{}", new_t, beatlength, meter, sample_set, sample_index, new_vol, 0, effects)
           },
           //no sv, no vol - should not reach this point
-          _ => {format!("")},
+          _ => {
+            format!("")
+          },
         };
 
         match obj.class {
           0 => {println!("[apply] shouldn't get here, class 1");}, //uninherited line
           1 => {
             //inherited line
-            if ui_ctrl.inh_check.check_state() == nwg::CheckBoxState::Checked {
+            if ui_ctrl.inh_check.check_state() == Checked {
               println!("[new] inh {}", new_point);
               self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
             }
           },
           2 => {
             //barline
-            if ui_ctrl.barline_check.check_state() == nwg::CheckBoxState::Checked {
+            if ui_ctrl.barline_check.check_state() == Checked {
               println!("[new] bar {}", new_point);
               self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
             }
           },
           3 => {
             //hitobject
-            if ui_ctrl.hit_check.check_state() == nwg::CheckBoxState::Checked {
+            if ui_ctrl.hit_check.check_state() == Checked {
               println!("[new] hit {}", new_point);
               self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
             }
@@ -181,13 +189,13 @@ impl SVT {
   }
 
   //clear all old map objects, load in a new file and repopulate with latest saved state
-  pub fn load_file(&mut self, filename: &String) {
+  pub fn load_osu(&mut self, filename: &String) {
     let mut bool_timing = false;
     let mut bool_hit = false;
 
     //TODO figure out better way to init this
-    let mut bar_time: f32 = 100000.0;
-    let mut bar_inc: f32 = 100000.0;
+    let mut bar_time: f32 = 1000000.0;
+    let mut bar_inc: f32 = 1000000.0;
 
     self.all_objs.clear();
     self.new_objs.clear();
@@ -220,7 +228,7 @@ impl SVT {
                     bar_time += bar_inc;
                     self.all_objs.push(MapObject{time: bar_time as i32, class: 2, data: String::from(""), ..Default::default()});
                   }
-                
+
                   //use uninherited point properties to calculate barline times
                   if map_obj.uninherited == 1 {
                     //set barline counter
@@ -324,6 +332,40 @@ impl SVT {
     let mut out_file = File::create(out_filename).unwrap();
     let _ = write!(&mut out_file, "{}", out_string);
     Ok(())
+  }
+
+  pub fn print_debug(&self) {
+    println!("\n[svt] DEBUG all_objs:");
+
+    let mut uni_count = 0;
+    let mut inh_count = 0;
+    let mut bar_count = 0;
+    let mut hit_count = 0;
+
+    for map_obj in self.all_objs.iter() {
+      match map_obj.class {
+        0 => {
+          println!("[svt] uni {}", map_obj.data.trim());
+          uni_count += 1;
+        },
+        1 => {
+          println!("[svt] inh {}", map_obj.data.trim());
+          inh_count += 1;
+        },
+        2 => {
+          println!("[svt] bar {}", map_obj.time);
+          bar_count += 1;
+        },
+        3 => {
+          //println!("[svt] hit {}", map_obj.time);
+          hit_count += 1;
+        },
+        _ => {
+          println!("[svt] ???");
+        },
+      }
+    }
+    println!("[svt] counts:\nuni: {}\ninh: {}\nbar: {}\nhit: {}\n", uni_count, inh_count, bar_count, hit_count);
   }
 }
 
