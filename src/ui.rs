@@ -2,6 +2,15 @@ extern crate native_windows_gui as nwg;
 extern crate native_windows_derive as nwd;
 use nwg::CheckBoxState::{Checked, Unchecked};
 use nwd::NwgUi;
+use nwg::stretch::{geometry::{Size, Rect}, style::{Dimension as D, FlexDirection, AlignSelf}};
+const PT_10: D = D::Points(10.0);
+const PT_5: D = D::Points(5.0);
+const PT_0: D = D::Points(0.0);
+const PT_28: D = D::Points(28.0);
+const PT_30: D = D::Points(30.0);
+const PADDING: Rect<D> = Rect{ start: PT_10, end: PT_10, top: PT_10, bottom: PT_10 };
+const MARGIN: Rect<D> = Rect{ start: PT_5, end: PT_5, top: PT_5, bottom: PT_0 };
+const WINDOW_LAYOUT_PADDING: Rect<D> = Rect{ start: PT_0, end: PT_10, top: PT_0, bottom: PT_28 };
 
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
@@ -36,16 +45,42 @@ pub struct AppOptions {
 
 #[derive(Default, NwgUi)]
 pub struct UI {
-  #[nwg_control(size: (300, 300), position: (cmp::max(0, nwg::Monitor::width() / 2 - 150), cmp::max(0, nwg::Monitor::height() / 2 - 150)), title: "SVT", accept_files: true, flags: "WINDOW|VISIBLE|MINIMIZE_BOX")]
-  #[nwg_events( OnWindowClose: [UI::close_window], OnFileDrop: [UI::drop_file(SELF, EVT_DATA)] )]
+  #[nwg_control(size: (300, 600), position: (cmp::max(0, nwg::Monitor::width() / 2 - 150), cmp::max(0, nwg::Monitor::height() / 2 - 300)), title: "SVT", accept_files: true, flags: "WINDOW|VISIBLE|MINIMIZE_BOX|RESIZABLE")]
+  #[nwg_events( OnWindowClose: [UI::close_window], OnFileDrop: [UI::drop_file(SELF, EVT_DATA)], OnResize: [UI::resize], OnResizeEnd: [UI::resize_end] )]
   pub window: nwg::Window,
 
+  #[nwg_layout(parent: window, flex_direction: FlexDirection::Column, padding: WINDOW_LAYOUT_PADDING)]
+  window_layout: nwg::FlexboxLayout,
+
   //timing point input
-  #[nwg_control(text: "", size: (290, 80), position: (5,5), flags: "VISIBLE|AUTOVSCROLL|TAB_STOP")]
+  #[nwg_control(text: "", flags: "VISIBLE|AUTOVSCROLL|TAB_STOP")]
+  #[nwg_layout_item(layout: window_layout, margin: MARGIN,
+    min_size: Size { width: D::Undefined, height: D::Points(25.0)},
+    size: Size { width: D::Percent(1.0), height: D::Percent(0.5) },
+    flex_grow: 1.0,
+  )]
   pub inherited_text: nwg::TextBox,
 
+  #[nwg_control(flags: "VISIBLE")]
+  #[nwg_layout_item(layout: window_layout, margin: MARGIN,
+    size: Size { width: D::Percent(1.0), height: D::Points(85.0) },
+  )]
+  pub options_frame: nwg::Frame,
+
+  #[nwg_control(flags: "VISIBLE")]
+  #[nwg_layout_item(layout: window_layout, margin: MARGIN,
+    size: Size { width: D::Percent(1.0), height: D::Points(55.0) },
+  )]
+  pub mapselect_frame: nwg::Frame,
+
+  #[nwg_control(flags: "VISIBLE")]
+  #[nwg_layout_item(layout: window_layout, margin: MARGIN,
+    size: Size { width: D::Percent(1.0), height: D::Points(25.0) },
+  )]
+  pub applyundo_frame: nwg::Frame,
+
   //outline around the apply controls
-  #[nwg_control(size: (50, 85), position: (5, 90))]
+  #[nwg_control(size: (50, 85), position: (0, 0), parent: options_frame)]
   pub apply_frame: nwg::Frame,
 
   #[nwg_control(text: "Apply:", size: (45, 20), position: (2, 0), parent: apply_frame)]
@@ -60,7 +95,7 @@ pub struct UI {
   pub vol_check: nwg::CheckBox,
 
   //outline around the apply to controls
-  #[nwg_control(size: (70, 85), position: (54, 90))]
+  #[nwg_control(size: (70, 85), position: (49, 0), parent: options_frame)]
   pub apply_to_frame: nwg::Frame,
 
   #[nwg_control(text: "To:", size: (65, 20), position: (2, 0), parent: apply_to_frame)]
@@ -79,66 +114,66 @@ pub struct UI {
   pub inh_check: nwg::CheckBox,
 
   //outline around advanced controls
-  #[nwg_control(size: (165, 85), position: (130, 90))]
-  pub options_frame: nwg::Frame,
+  #[nwg_control(size: (165, 85), position: (125, 0), parent: options_frame)]
+  pub advanced_options_frame: nwg::Frame,
 
-  #[nwg_control(text: "Advanced Options:", size: (195, 20), position: (2, 0), parent: options_frame)]
+  #[nwg_control(text: "Advanced Options:", size: (195, 20), position: (2, 0), parent: advanced_options_frame)]
   pub options_label: nwg::Label,
 
   //offset time
-  #[nwg_control(text: "-1", size: (19, 19), position: (2, 20), parent: options_frame)]
+  #[nwg_control(text: "-1", size: (19, 19), position: (2, 20), parent: advanced_options_frame)]
   pub offset_text: nwg::TextInput,
 
-  #[nwg_control(text: "Offset", size: (45, 20), position: (25, 22), parent: options_frame)]
+  #[nwg_control(text: "Offset", size: (45, 20), position: (25, 22), parent: advanced_options_frame)]
   pub offset_label: nwg::Label,
 
   //buffer time
-  #[nwg_control(text: "3", size: (19, 19), position: (2, 40), parent: options_frame)]
+  #[nwg_control(text: "3", size: (19, 19), position: (2, 40), parent: advanced_options_frame)]
   pub buffer_text: nwg::TextInput,
 
-  #[nwg_control(text: "Buffer", size: (45, 20), position: (25, 42), parent: options_frame)]
+  #[nwg_control(text: "Buffer", size: (45, 20), position: (25, 42), parent: advanced_options_frame)]
   pub buffer_label: nwg::Label,
 
   //exponential factor
-  #[nwg_control(text: "0.5", size: (19, 19), position: (2, 60), parent: options_frame)]
+  #[nwg_control(text: "0.5", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
   pub exponent_text: nwg::TextInput,
 
-  #[nwg_control(text: "Exp.", size: (45, 20), position: (25, 62), parent: options_frame)]
+  #[nwg_control(text: "Exp.", size: (45, 20), position: (25, 62), parent: advanced_options_frame)]
   pub exponent_label: nwg::Label,
 
   //toggles end line/start line BPM
-  #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: Unchecked, parent: options_frame)]
+  #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: Unchecked, parent: advanced_options_frame)]
   pub ign_bpm_check: nwg::CheckBox,
 
   //toggles exponential mode
-  #[nwg_control(text: "Exp. SV", size: (105, 20), position: (75, 60), check_state: Unchecked, parent: options_frame)]
+  #[nwg_control(text: "Exp. SV", size: (105, 20), position: (75, 60), check_state: Unchecked, parent: advanced_options_frame)]
   pub exponential_check: nwg::CheckBox,
 
   //select map button
-  #[nwg_control(text: "Select Map", size: (87, 25), position: (4, 185))]
+  #[nwg_control(text: "Select Map", size: (87, 25), position: (-1,0), parent: mapselect_frame)]
   #[nwg_events( OnButtonClick: [UI::open_file_browser] )]
   pub open_button: nwg::Button,
 
   //input map filename
-  #[nwg_control(text: "", size: (200, 23), position: (95, 186), flags: "VISIBLE|DISABLED")]
+  #[nwg_control(text: "", size: (200, 23), position: (90, 1), flags: "VISIBLE|DISABLED", parent: mapselect_frame)]
   pub in_filename: nwg::TextInput,
 
   //toggles preview
-  #[nwg_control(text: "Preview Diff", size: (87, 25), position: (5, 215), check_state: Unchecked)]
+  #[nwg_control(text: "Preview Diff", size: (87, 25), position: (0, 30), check_state: Unchecked, parent: mapselect_frame)]
   #[nwg_events(OnButtonClick: [UI::fill_out_filename])]
   pub preview_check: nwg::CheckBox,
   
   //output map filename
-  #[nwg_control(text: "", size: (200, 23), position: (95, 216))]
+  #[nwg_control(text: "", size: (200, 23), position: (90, 31), parent: mapselect_frame)]
   pub out_filename: nwg::TextInput,
   
   //place apply button near bottom
-  #[nwg_control(text: "Apply", size: (242, 25), position: (4, 245), flags: "VISIBLE|DISABLED")]
+  #[nwg_control(text: "Apply", size: (242, 25), position: (0, 0), flags: "VISIBLE|DISABLED", parent: applyundo_frame)]
   #[nwg_events( OnButtonClick: [UI::apply_changes] )]
   pub apply_button: nwg::Button,
 
   //place undo/redo button near bottom
-  #[nwg_control(text: "Undo", size: (45, 25), position: (251, 245), flags: "VISIBLE|DISABLED")]
+  #[nwg_control(text: "Undo", size: (45, 25), position: (247, 0), flags: "VISIBLE|DISABLED", parent: applyundo_frame)]
   #[nwg_events( OnButtonClick: [UI::undo] )]
   pub undo_button: nwg::Button,
 
@@ -371,5 +406,28 @@ impl UI {
 
     let _ = write!(&mut out_file, "{}", out_string);
     Ok(())
+  }
+
+  fn resize(&self) {
+
+  }
+
+  fn resize_end(&self) {
+    let (w,h) = self.window.size();
+
+    let mut w_new = w;
+    let mut h_new = h;
+
+    if w != 300 {
+      w_new = 300;
+    }
+
+    if h < 400 {
+      h_new = 400;
+    }
+
+    if (w_new,h_new) != (w,h) {
+      self.window.set_size(w_new, h_new);
+    }
   }
 }

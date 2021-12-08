@@ -5,7 +5,7 @@ authors = ["Jason Ma <jasonma5501@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-native-windows-gui = {git="https://github.com/gabdube/native-windows-gui"}
+native-windows-gui = {git="https://github.com/gabdube/native-windows-gui", features = ["flexbox"]}
 native-windows-derive = {git="https://github.com/gabdube/native-windows-gui"}
 anyhow = "1.0.51"
 serde = {version = "1.0", features = ["derive"]}
