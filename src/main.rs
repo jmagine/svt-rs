@@ -30,7 +30,7 @@ fn main() {
   //TODO could maybe use init to register the tooltip fields
   let _res_ = nwg::Tooltip::builder()
     .register(&app.inherited_text, "Paste timing point start/end pair(s) here. Copy/paste from timing panel. These timing points contain the start/end times, SVs, and volumes which are interpolated for the selected objects. (Example format: 111376,-76.92308,4,1,0,100,0,1)")
-    .register(&app.sv_check, "Change slider velocity smoothly for selected objects (hits/barlines/inh. lines)")
+    //.register(&app.sv_check, "Change slider velocity smoothly for selected objects (hits/barlines/inh. lines)")
     .register(&app.vol_check, "Change volume smoothly for selected objects (hits/barlines/inh. lines)")
     .register(&app.hit_check, "Change hitobjects (notes, spinners, sliders) between start/end points")
     .register(&app.barline_check, "Change barlines (big white lines) between start/end points")
@@ -39,7 +39,7 @@ fn main() {
     .register(&app.buffer_label, "(integer) Include map objects (in ms) before and after the start/end timing points, useful if objects are not perfectly snapped")
     .register(&app.exponent_label, "(decimal) Exponent for exponential SV. Recommended values are [0.5, 1) for slowdowns and (1.0, 2.0] for speedups. Applied following a (sv_diff) * (t / t_diff)^exp curve")
     .register(&app.ign_bpm_check, "End timing point SV is normally relative to end timing point BPM, but if checked, can be made relative to start timing point BPM")
-    .register(&app.exponential_check, "Enable exponential SV using the exp. factor (if disabled, will use linear SV)")
+    .register(&app.exp_sv_check, "Enable exponential SV using the exp. factor (if disabled, will use linear SV)")
     .register(&app.open_button, "Select map to change")
     .register(&app.in_filename, "Map being edited")
     .register(&app.out_filename, "Output location")

@@ -2,13 +2,11 @@ extern crate native_windows_gui as nwg;
 extern crate native_windows_derive as nwd;
 use nwg::CheckBoxState::{Checked, Unchecked};
 use nwd::NwgUi;
-use nwg::stretch::{geometry::{Size, Rect}, style::{Dimension as D, FlexDirection, AlignSelf}};
+use nwg::stretch::{geometry::{Size, Rect}, style::{Dimension as D, FlexDirection}};
 const PT_10: D = D::Points(10.0);
 const PT_5: D = D::Points(5.0);
 const PT_0: D = D::Points(0.0);
 const PT_28: D = D::Points(28.0);
-const PT_30: D = D::Points(30.0);
-const PADDING: Rect<D> = Rect{ start: PT_10, end: PT_10, top: PT_10, bottom: PT_10 };
 const MARGIN: Rect<D> = Rect{ start: PT_5, end: PT_5, top: PT_5, bottom: PT_0 };
 const WINDOW_LAYOUT_PADDING: Rect<D> = Rect{ start: PT_0, end: PT_10, top: PT_0, bottom: PT_28 };
 
@@ -30,7 +28,9 @@ use crate::svt;
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AppOptions {
   map: String,
-  sv: bool,
+  lin_sv: bool,
+  exp_sv: bool,
+  flat_sv: bool,
   vol: bool,
   hits: bool,
   barlines: bool,
@@ -39,14 +39,17 @@ pub struct AppOptions {
   buffer: String,
   exp: String,
   ignore_bpm: bool,
-  exp_sv: bool,
+  pos_x: i32,
+  pos_y: i32,
+  width: u32,
+  height: u32,
   experimental: String,
 }
 
 #[derive(Default, NwgUi)]
 pub struct UI {
-  #[nwg_control(size: (300, 600), position: (cmp::max(0, nwg::Monitor::width() / 2 - 150), cmp::max(0, nwg::Monitor::height() / 2 - 300)), title: "SVT", accept_files: true, flags: "WINDOW|VISIBLE|MINIMIZE_BOX|RESIZABLE")]
-  #[nwg_events( OnWindowClose: [UI::close_window], OnFileDrop: [UI::drop_file(SELF, EVT_DATA)], OnResize: [UI::resize], OnResizeEnd: [UI::resize_end] )]
+  #[nwg_control(size: (300, 300), position: (cmp::max(0, nwg::Monitor::width() / 2 - 150), cmp::max(0, nwg::Monitor::height() / 2 - 150)), title: "SVT", accept_files: true, flags: "WINDOW|VISIBLE|MINIMIZE_BOX|RESIZABLE")]
+  #[nwg_events( OnWindowClose: [UI::close_window], OnFileDrop: [UI::drop_file(SELF, EVT_DATA)], OnResizeBegin: [UI::resize_begin], OnResizeEnd: [UI::resize_end] )]
   pub window: nwg::Window,
 
   #[nwg_layout(parent: window, flex_direction: FlexDirection::Column, padding: WINDOW_LAYOUT_PADDING)]
@@ -55,15 +58,14 @@ pub struct UI {
   //timing point input
   #[nwg_control(text: "", flags: "VISIBLE|AUTOVSCROLL|TAB_STOP")]
   #[nwg_layout_item(layout: window_layout, margin: MARGIN,
-    min_size: Size { width: D::Undefined, height: D::Points(25.0)},
-    size: Size { width: D::Percent(1.0), height: D::Percent(0.5) },
+    size: Size { width: D::Percent(1.0), height: D::Percent(0.2) },
     flex_grow: 1.0,
   )]
   pub inherited_text: nwg::TextBox,
 
   #[nwg_control(flags: "VISIBLE")]
   #[nwg_layout_item(layout: window_layout, margin: MARGIN,
-    size: Size { width: D::Percent(1.0), height: D::Points(85.0) },
+    size: Size { width: D::Percent(1.0), height: D::Points(110.0) },
   )]
   pub options_frame: nwg::Frame,
 
@@ -80,22 +82,33 @@ pub struct UI {
   pub applyundo_frame: nwg::Frame,
 
   //outline around the apply controls
-  #[nwg_control(size: (50, 85), position: (0, 0), parent: options_frame)]
+  #[nwg_control(size: (60, 110), position: (0, 0), parent: options_frame)]
   pub apply_frame: nwg::Frame,
 
   #[nwg_control(text: "Apply:", size: (45, 20), position: (2, 0), parent: apply_frame)]
   pub apply_label: nwg::Label,
 
   //toggles sv changes
-  #[nwg_control(text: "SV", size: (95, 20), position: (2, 20), check_state: Checked, parent: apply_frame)]
-  pub sv_check: nwg::CheckBox,
+  #[nwg_control(text: "Lin. SV", size: (95, 20), position: (2, 20), check_state: Checked, parent: apply_frame)]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
+  pub lin_sv_check: nwg::CheckBox,
+
+  //toggles sv changes
+  #[nwg_control(text: "Exp. SV", size: (95, 20), position: (2, 40), check_state: Unchecked, parent: apply_frame)]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
+  pub exp_sv_check: nwg::CheckBox,
+
+      //toggles sv changes
+  #[nwg_control(text: "Flat SV", size: (95, 20), position: (2, 60), check_state: Unchecked, parent: apply_frame)]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
+  pub flat_sv_check: nwg::CheckBox,
 
   //toggles vol changes
-  #[nwg_control(text: "Vol", size: (95, 20), position: (2, 40), check_state: Checked, parent: apply_frame)]
+  #[nwg_control(text: "Lin. Vol", size: (95, 20), position: (2, 90), check_state: Checked, parent: apply_frame)]
   pub vol_check: nwg::CheckBox,
 
   //outline around the apply to controls
-  #[nwg_control(size: (70, 85), position: (49, 0), parent: options_frame)]
+  #[nwg_control(size: (70, 110), position: (59, 0), parent: options_frame)]
   pub apply_to_frame: nwg::Frame,
 
   #[nwg_control(text: "To:", size: (65, 20), position: (2, 0), parent: apply_to_frame)]
@@ -114,11 +127,11 @@ pub struct UI {
   pub inh_check: nwg::CheckBox,
 
   //outline around advanced controls
-  #[nwg_control(size: (165, 85), position: (125, 0), parent: options_frame)]
+  #[nwg_control(size: (162, 110), position: (128, 0), parent: options_frame)]
   pub advanced_options_frame: nwg::Frame,
 
   #[nwg_control(text: "Advanced Options:", size: (195, 20), position: (2, 0), parent: advanced_options_frame)]
-  pub options_label: nwg::Label,
+  pub advanced_options_label: nwg::Label,
 
   //offset time
   #[nwg_control(text: "-1", size: (19, 19), position: (2, 20), parent: advanced_options_frame)]
@@ -141,13 +154,15 @@ pub struct UI {
   #[nwg_control(text: "Exp.", size: (45, 20), position: (25, 62), parent: advanced_options_frame)]
   pub exponent_label: nwg::Label,
 
+  #[nwg_control(text: "0.0", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
+  pub flat_sv_text: nwg::TextInput,
+
+  #[nwg_control(text: "SV Change", size: (100, 20), position: (25, 62), parent: advanced_options_frame)]
+  pub flat_sv_label: nwg::Label,
+
   //toggles end line/start line BPM
   #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: Unchecked, parent: advanced_options_frame)]
   pub ign_bpm_check: nwg::CheckBox,
-
-  //toggles exponential mode
-  #[nwg_control(text: "Exp. SV", size: (105, 20), position: (75, 60), check_state: Unchecked, parent: advanced_options_frame)]
-  pub exponential_check: nwg::CheckBox,
 
   //select map button
   #[nwg_control(text: "Select Map", size: (87, 25), position: (-1,0), parent: mapselect_frame)]
@@ -186,6 +201,8 @@ pub struct UI {
   pub file_dialog: nwg::FileDialog,
 
   pub svt: RefCell<svt::SVT>,
+  pub pos_x: RefCell<i32>,
+  pub pos_y: RefCell<i32>,
 }
 
 impl UI {
@@ -207,6 +224,8 @@ impl UI {
 
     //always disable undo button by default
     self.undo_button.set_enabled(false);
+
+    self.set_sv_mode(&self.lin_sv_check);
   }
 
   fn apply_changes(&self) {
@@ -259,6 +278,10 @@ impl UI {
   }
   
   fn close_window(&self) {
+    if self.save_config().is_err() {
+      println!("[close] failed to save config");
+      return;
+    }
     nwg::stop_thread_dispatch();
   }
 
@@ -359,10 +382,12 @@ impl UI {
   fn load_config(&self) -> Result<()> {
     // read file
     let app_options_string = fs::read_to_string("svt_config.txt")?;    
-    let app_options = serde_json::from_str(&app_options_string).unwrap_or(AppOptions{offset: String::from("0"), buffer: String::from("3"), exp: String::from("0.5"), ..Default::default()});
+    let mut app_options = serde_json::from_str(&app_options_string).unwrap_or(AppOptions{offset: String::from("0"), buffer: String::from("3"), exp: String::from("0.5"), ..Default::default()});
 
     self.in_filename.set_text(&app_options.map);
-    self.sv_check.set_check_state(if app_options.sv {Checked} else {Unchecked});
+    self.lin_sv_check.set_check_state(if app_options.lin_sv {Checked} else {Unchecked});
+    self.exp_sv_check.set_check_state(if app_options.exp_sv {Checked} else {Unchecked});
+    self.flat_sv_check.set_check_state(if app_options.flat_sv {Checked} else {Unchecked});
     self.vol_check.set_check_state(if app_options.vol {Checked} else {Unchecked});
     self.hit_check.set_check_state(if app_options.hits {Checked} else {Unchecked});
     self.barline_check.set_check_state(if app_options.barlines {Checked} else {Unchecked});
@@ -371,7 +396,19 @@ impl UI {
     self.buffer_text.set_text(&app_options.buffer);
     self.exponent_text.set_text(&app_options.exp);
     self.ign_bpm_check.set_check_state(if app_options.ignore_bpm {Checked} else {Unchecked});
-    self.exponential_check.set_check_state(if app_options.exp_sv {Checked} else {Unchecked});
+
+    //validation on x/y
+    if app_options.pos_x < 0 || app_options.pos_x > nwg::Monitor::width() - 300 {
+      app_options.pos_x = cmp::max(0, nwg::Monitor::width() / 2 - 150);
+    }
+    if app_options.pos_y < 0 || app_options.pos_y > nwg::Monitor::height() {
+      app_options.pos_y = cmp::max(0, nwg::Monitor::height() / 2 - 150);
+    }
+
+    self.window.set_position(app_options.pos_x, app_options.pos_y);
+    self.window.set_size(app_options.width, app_options.height);
+    self.resize_begin();
+    self.resize_end();
     
     self.fill_out_filename();
     if self.in_filename.text().len() == 0 {
@@ -387,9 +424,14 @@ impl UI {
     let mut out_string = String::new();
     let mut out_file = File::create("svt_config.txt").unwrap();
 
+    let (x,y) = self.window.position();
+    let (w,h) = self.window.size();
+
     let app_options = AppOptions{
       map: self.in_filename.text(),
-      sv: self.sv_check.check_state() == Checked,
+      lin_sv: self.lin_sv_check.check_state() == Checked,
+      exp_sv: self.exp_sv_check.check_state() == Checked,
+      flat_sv: self.flat_sv_check.check_state() == Checked,
       vol: self.vol_check.check_state() == Checked,
       hits: self.hit_check.check_state() == Checked,
       barlines: self.barline_check.check_state() == Checked,
@@ -398,7 +440,10 @@ impl UI {
       buffer: self.buffer_text.text(),
       exp: self.exponent_text.text(),
       ignore_bpm: self.ign_bpm_check.check_state() == Checked,
-      exp_sv: self.exponential_check.check_state() == Checked,
+      pos_x: x,
+      pos_y: y,
+      width: w,
+      height: h,
       experimental: String::from(""),
     };
 
@@ -408,8 +453,11 @@ impl UI {
     Ok(())
   }
 
-  fn resize(&self) {
-
+  fn resize_begin(&self) {
+    //save current position
+    let (x,y) = self.window.position();
+    self.pos_x.replace(x);
+    self.pos_y.replace(y);
   }
 
   fn resize_end(&self) {
@@ -422,12 +470,68 @@ impl UI {
       w_new = 300;
     }
 
-    if h < 400 {
-      h_new = 400;
+    if h < 300 {
+      h_new = 300;
     }
 
     if (w_new,h_new) != (w,h) {
       self.window.set_size(w_new, h_new);
+
+      //reset position of window if resized
+      let (x,y) = (self.pos_x.take(), self.pos_y.take());
+      self.window.set_position(x,y);
+    }
+  }
+
+  fn set_sv_mode(&self, ctrl: &nwg::CheckBox) {
+    //ensure only one sv option is checked at a time
+    if ctrl == &self.lin_sv_check {
+      if self.lin_sv_check.check_state() == Checked {
+        self.exp_sv_check.set_check_state(Unchecked);
+        self.flat_sv_check.set_check_state(Unchecked);
+      }
+    } else if ctrl == &self.exp_sv_check {
+      if self.exp_sv_check.check_state() == Checked {
+        self.lin_sv_check.set_check_state(Unchecked);
+        self.flat_sv_check.set_check_state(Unchecked);
+      }
+    } else if ctrl == &self.flat_sv_check {
+      if self.flat_sv_check.check_state() == Checked {
+        self.lin_sv_check.set_check_state(Unchecked);
+        self.exp_sv_check.set_check_state(Unchecked);
+      }
+    }
+
+    //set visibility of mode specific options
+    if self.exp_sv_check.check_state() == Checked {
+      self.exponent_text.set_visible(true);
+      self.exponent_label.set_visible(true);
+    } else {
+      self.exponent_text.set_visible(false);
+      self.exponent_label.set_visible(false);
+    }
+
+    if self.flat_sv_check.check_state() == Checked {
+      self.flat_sv_text.set_visible(true);
+      self.flat_sv_label.set_visible(true);
+      self.hit_check.set_enabled(false);
+      self.barline_check.set_enabled(false);
+      self.inh_check.set_enabled(false);
+      self.ign_bpm_check.set_enabled(false);
+    } else {
+      self.flat_sv_text.set_visible(false);
+      self.flat_sv_label.set_visible(false);
+      self.hit_check.set_enabled(true);
+      self.barline_check.set_enabled(true);
+      self.inh_check.set_enabled(true);
+      self.ign_bpm_check.set_enabled(true);
+    }
+
+    //set visibility of sv options
+    if ctrl.check_state() == Checked {
+      self.ign_bpm_check.set_visible(true);
+    } else {
+      self.ign_bpm_check.set_visible(false);
     }
   }
 }

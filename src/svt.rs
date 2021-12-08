@@ -33,14 +33,28 @@ impl SVT {
   //TODO figure out something better than passing ui struct in lol
   //apply timing between two points
   pub fn apply_timing(&mut self, start_line: &str, end_line: &str, ui_ctrl: &ui::UI) -> Result<()> {
-    let exp = ui_ctrl.exponent_text.text().parse::<f32>().context("[apply] invalid exponent")?;
+    
+    //only validate these text fields when the corresponding modes are enabled
+    let exp = if ui_ctrl.exp_sv_check.check_state() == Checked {
+      ui_ctrl.exponent_text.text().parse::<f32>().context("[apply] invalid exponent")?
+    } else {
+      1.0
+    };
+    let flat_sv = if ui_ctrl.flat_sv_check.check_state() == Checked {
+      ui_ctrl.flat_sv_text.text().parse::<f32>().context("[apply] invalid flat sv")?
+    } else {
+      0.0
+    };
+
     let t_off = ui_ctrl.offset_text.text().parse::<i32>().context("[apply] invalid offset")?;
     let t_buf = ui_ctrl.buffer_text.text().parse::<i32>().context("[apply] invalid buffer")?;
 
     let start_obj = create_map_object(start_line.to_string(), true).context("[apply] timing point format error")?;
     let end_obj = create_map_object(end_line.to_string(), true).context("[apply] timing point format error")?;
 
-    if (ui_ctrl.sv_check.check_state(), ui_ctrl.vol_check.check_state()) == (Unchecked, Unchecked) {
+    //TODO this can probably happen in UI, not here
+    let sv_change_bool: bool = ui_ctrl.lin_sv_check.check_state() == Checked || ui_ctrl.exp_sv_check.check_state() == Checked || ui_ctrl.flat_sv_check.check_state() == Checked;
+    if (sv_change_bool, ui_ctrl.vol_check.check_state()) == (false, Unchecked) {
       return Err(anyhow!("[apply] nothing to apply (sv, vol)"));
     }
 
@@ -103,6 +117,11 @@ impl SVT {
     let mut kiai_change_time = 0;
 
     for obj in self.all_objs.iter() {
+      //only consider timing points for flat sv
+      if ui_ctrl.flat_sv_check.check_state() == Checked && obj.class > 1 {
+        continue;
+      }
+
       //set fields before performing calculations
       if obj.class == 0 {
         //uninherited point
@@ -143,27 +162,32 @@ impl SVT {
       if obj_time >= start_obj.time - t_buf && obj_time <= end_obj.time + t_buf {
         //ensure time is set both after any uninherited points or kiai time changes within offset window
         let new_t = cmp::max(cmp::max(obj_time + t_off, last_uni_time), kiai_change_time);
-        let new_sv = if ui_ctrl.exponential_check.check_state() == Checked {
-          //exponential
-          s_sv_raw + sv_diff * f32::powf(cmp::max(0, obj_time - start_obj.time) as f32 / t_diff as f32, exp)
-        } else {
+        let new_sv = if ui_ctrl.lin_sv_check.check_state() == Checked {
           //linear
           s_sv_raw + (obj_time - start_obj.time) as f32 * sv_per_ms
+        } else if ui_ctrl.exp_sv_check.check_state() == Checked {
+          //exponential
+          s_sv_raw + sv_diff * f32::powf(cmp::max(0, obj_time - start_obj.time) as f32 / t_diff as f32, exp)
+        } else if ui_ctrl.flat_sv_check.check_state() == Checked {
+          //flat
+          (-100.0 / obj.beatlength + flat_sv) * s_bpm
+        } else {
+          -100.0
         };
 
         let new_b = -100.0 / (new_sv / bpm);
         let new_vol = ((start_obj.volume as f32 + (obj_time - start_obj.time) as f32 * vol_per_ms)).round() as u32;
-        let new_point = match (ui_ctrl.sv_check.check_state(), ui_ctrl.vol_check.check_state()) {
+        let new_point = match (sv_change_bool, ui_ctrl.vol_check.check_state()) {
           //sv and vol
-          (Checked, Checked) => {
+          (true, Checked) => {
             format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, new_vol, 0, effects)
           },
           //sv and no vol
-          (Checked, Unchecked) => {
+          (true, Unchecked) => {
             format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, volume, 0, effects)
           },
           //no sv and vol
-          (Unchecked, Checked) => {
+          (false, Checked) => {
             format!("{},{},{},{},{},{},{},{}", new_t, beatlength, meter, sample_set, sample_index, new_vol, 0, effects)
           },
           //no sv, no vol - should not reach this point
@@ -176,7 +200,7 @@ impl SVT {
           0 => {println!("[apply] shouldn't get here, class 1");}, //uninherited line
           1 => {
             //inherited line
-            if ui_ctrl.inh_check.check_state() == Checked {
+            if ui_ctrl.inh_check.check_state() == Checked || ui_ctrl.flat_sv_check.check_state() == Checked {
               println!("[new] inh {}", new_point);
               self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
             }
