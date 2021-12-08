@@ -86,7 +86,7 @@ pub struct UI {
   pub options_label: nwg::Label,
 
   //offset time
-  #[nwg_control(text: "0", size: (19, 19), position: (2, 20), parent: options_frame)]
+  #[nwg_control(text: "-1", size: (19, 19), position: (2, 20), parent: options_frame)]
   pub offset_text: nwg::TextInput,
 
   #[nwg_control(text: "Offset", size: (45, 20), position: (25, 22), parent: options_frame)]
