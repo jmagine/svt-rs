@@ -29,6 +29,7 @@ use crate::svt;
 pub struct AppOptions {
   map: String,
   lin_sv: bool,
+  pol_sv: bool,
   exp_sv: bool,
   flat_sv: bool,
   vol: bool,
@@ -37,7 +38,8 @@ pub struct AppOptions {
   inh_lines: bool,
   offset: String,
   buffer: String,
-  exp: String,
+  pol_exp: String,
+  flat_change: String,
   ignore_bpm: bool,
   pos_x: i32,
   pos_y: i32,
@@ -58,14 +60,14 @@ pub struct UI {
   //timing point input
   #[nwg_control(text: "", flags: "VISIBLE|AUTOVSCROLL|TAB_STOP")]
   #[nwg_layout_item(layout: window_layout, margin: MARGIN,
-    size: Size { width: D::Percent(1.0), height: D::Percent(0.2) },
+    size: Size { width: D::Percent(1.0), height: D::Percent(0.15) },
     flex_grow: 1.0,
   )]
   pub inherited_text: nwg::TextBox,
 
   #[nwg_control(flags: "VISIBLE")]
   #[nwg_layout_item(layout: window_layout, margin: MARGIN,
-    size: Size { width: D::Percent(1.0), height: D::Points(110.0) },
+    size: Size { width: D::Percent(1.0), height: D::Points(120.0) },
   )]
   pub options_frame: nwg::Frame,
 
@@ -82,7 +84,7 @@ pub struct UI {
   pub applyundo_frame: nwg::Frame,
 
   //outline around the apply controls
-  #[nwg_control(size: (60, 110), position: (0, 0), parent: options_frame)]
+  #[nwg_control(size: (60, 120), position: (0, 0), parent: options_frame)]
   pub apply_frame: nwg::Frame,
 
   #[nwg_control(text: "Apply:", size: (45, 20), position: (2, 0), parent: apply_frame)]
@@ -98,17 +100,22 @@ pub struct UI {
   #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
   pub exp_sv_check: nwg::CheckBox,
 
+  //toggles sv changes
+  #[nwg_control(text: "Pol. SV", size: (95, 20), position: (2, 60), check_state: Unchecked, parent: apply_frame)]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
+  pub pol_sv_check: nwg::CheckBox,
+
       //toggles sv changes
-  #[nwg_control(text: "Flat SV", size: (95, 20), position: (2, 60), check_state: Unchecked, parent: apply_frame)]
+  #[nwg_control(text: "Flat SV", size: (95, 20), position: (2, 80), check_state: Unchecked, parent: apply_frame)]
   #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
   pub flat_sv_check: nwg::CheckBox,
 
   //toggles vol changes
-  #[nwg_control(text: "Lin. Vol", size: (95, 20), position: (2, 90), check_state: Checked, parent: apply_frame)]
+  #[nwg_control(text: "Lin. Vol", size: (95, 20), position: (2, 100), check_state: Checked, parent: apply_frame)]
   pub vol_check: nwg::CheckBox,
 
   //outline around the apply to controls
-  #[nwg_control(size: (70, 110), position: (59, 0), parent: options_frame)]
+  #[nwg_control(size: (70, 120), position: (59, 0), parent: options_frame)]
   pub apply_to_frame: nwg::Frame,
 
   #[nwg_control(text: "To:", size: (65, 20), position: (2, 0), parent: apply_to_frame)]
@@ -127,7 +134,7 @@ pub struct UI {
   pub inh_check: nwg::CheckBox,
 
   //outline around advanced controls
-  #[nwg_control(size: (162, 110), position: (128, 0), parent: options_frame)]
+  #[nwg_control(size: (162, 120), position: (128, 0), parent: options_frame)]
   pub advanced_options_frame: nwg::Frame,
 
   #[nwg_control(text: "Advanced Options:", size: (195, 20), position: (2, 0), parent: advanced_options_frame)]
@@ -149,10 +156,10 @@ pub struct UI {
 
   //exponential factor
   #[nwg_control(text: "0.5", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
-  pub exponent_text: nwg::TextInput,
+  pub pol_exp_text: nwg::TextInput,
 
   #[nwg_control(text: "Exp.", size: (45, 20), position: (25, 62), parent: advanced_options_frame)]
-  pub exponent_label: nwg::Label,
+  pub pol_exp_label: nwg::Label,
 
   #[nwg_control(text: "0.0", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
   pub flat_sv_text: nwg::TextInput,
@@ -382,10 +389,20 @@ impl UI {
   fn load_config(&self) -> Result<()> {
     // read file
     let app_options_string = fs::read_to_string("svt_config.txt")?;    
-    let mut app_options = serde_json::from_str(&app_options_string).unwrap_or(AppOptions{offset: String::from("0"), buffer: String::from("3"), exp: String::from("0.5"), ..Default::default()});
+    let mut app_options = serde_json::from_str(&app_options_string)
+        .unwrap_or(AppOptions{
+            lin_sv: true,
+            vol: true,
+            hits: true,
+            barlines: true,
+            offset: String::from("-1"), 
+            buffer: String::from("3"), 
+            pol_exp: String::from("0.5"), 
+            ..Default::default()});
 
     self.in_filename.set_text(&app_options.map);
     self.lin_sv_check.set_check_state(if app_options.lin_sv {Checked} else {Unchecked});
+    self.pol_sv_check.set_check_state(if app_options.pol_sv {Checked} else {Unchecked});
     self.exp_sv_check.set_check_state(if app_options.exp_sv {Checked} else {Unchecked});
     self.flat_sv_check.set_check_state(if app_options.flat_sv {Checked} else {Unchecked});
     self.vol_check.set_check_state(if app_options.vol {Checked} else {Unchecked});
@@ -394,7 +411,8 @@ impl UI {
     self.inh_check.set_check_state(if app_options.inh_lines {Checked} else {Unchecked});
     self.offset_text.set_text(&app_options.offset);
     self.buffer_text.set_text(&app_options.buffer);
-    self.exponent_text.set_text(&app_options.exp);
+    self.pol_exp_text.set_text(&app_options.pol_exp);
+    self.flat_sv_text.set_text(&app_options.flat_change);
     self.ign_bpm_check.set_check_state(if app_options.ignore_bpm {Checked} else {Unchecked});
 
     //validation on x/y
@@ -430,6 +448,7 @@ impl UI {
     let app_options = AppOptions{
       map: self.in_filename.text(),
       lin_sv: self.lin_sv_check.check_state() == Checked,
+      pol_sv: self.pol_sv_check.check_state() == Checked,
       exp_sv: self.exp_sv_check.check_state() == Checked,
       flat_sv: self.flat_sv_check.check_state() == Checked,
       vol: self.vol_check.check_state() == Checked,
@@ -438,7 +457,8 @@ impl UI {
       inh_lines: self.inh_check.check_state() == Checked,
       offset: self.offset_text.text(),
       buffer: self.buffer_text.text(),
-      exp: self.exponent_text.text(),
+      pol_exp: self.pol_exp_text.text(),
+      flat_change: self.flat_sv_text.text(),
       ignore_bpm: self.ign_bpm_check.check_state() == Checked,
       pos_x: x,
       pos_y: y,
@@ -447,7 +467,7 @@ impl UI {
       experimental: String::from(""),
     };
 
-    out_string += &serde_json::to_string(&app_options).unwrap();
+    out_string += &serde_json::to_string_pretty(&app_options).unwrap();
 
     let _ = write!(&mut out_file, "{}", out_string);
     Ok(())
@@ -487,28 +507,35 @@ impl UI {
     //ensure only one sv option is checked at a time
     if ctrl == &self.lin_sv_check {
       if self.lin_sv_check.check_state() == Checked {
+        self.pol_sv_check.set_check_state(Unchecked);
         self.exp_sv_check.set_check_state(Unchecked);
         self.flat_sv_check.set_check_state(Unchecked);
       }
+    } else if ctrl == &self.pol_sv_check {
+      self.lin_sv_check.set_check_state(Unchecked);
+      self.exp_sv_check.set_check_state(Unchecked);
+      self.flat_sv_check.set_check_state(Unchecked);
     } else if ctrl == &self.exp_sv_check {
       if self.exp_sv_check.check_state() == Checked {
         self.lin_sv_check.set_check_state(Unchecked);
+        self.pol_sv_check.set_check_state(Unchecked);
         self.flat_sv_check.set_check_state(Unchecked);
       }
     } else if ctrl == &self.flat_sv_check {
       if self.flat_sv_check.check_state() == Checked {
         self.lin_sv_check.set_check_state(Unchecked);
+        self.pol_sv_check.set_check_state(Unchecked);
         self.exp_sv_check.set_check_state(Unchecked);
       }
     }
 
     //set visibility of mode specific options
-    if self.exp_sv_check.check_state() == Checked {
-      self.exponent_text.set_visible(true);
-      self.exponent_label.set_visible(true);
+    if self.pol_sv_check.check_state() == Checked {
+      self.pol_exp_text.set_visible(true);
+      self.pol_exp_label.set_visible(true);
     } else {
-      self.exponent_text.set_visible(false);
-      self.exponent_label.set_visible(false);
+      self.pol_exp_text.set_visible(false);
+      self.pol_exp_label.set_visible(false);
     }
 
     if self.flat_sv_check.check_state() == Checked {

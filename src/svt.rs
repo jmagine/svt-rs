@@ -35,8 +35,8 @@ impl SVT {
   pub fn apply_timing(&mut self, start_line: &str, end_line: &str, ui_ctrl: &ui::UI) -> Result<()> {
     
     //only validate these text fields when the corresponding modes are enabled
-    let exp = if ui_ctrl.exp_sv_check.check_state() == Checked {
-      ui_ctrl.exponent_text.text().parse::<f32>().context("[apply] invalid exponent")?
+    let pol_exp = if ui_ctrl.pol_sv_check.check_state() == Checked {
+      ui_ctrl.pol_exp_text.text().parse::<f32>().context("[apply] invalid exponent")?
     } else {
       1.0
     };
@@ -53,7 +53,10 @@ impl SVT {
     let end_obj = create_map_object(end_line.to_string(), true).context("[apply] timing point format error")?;
 
     //TODO this can probably happen in UI, not here
-    let sv_change_bool: bool = ui_ctrl.lin_sv_check.check_state() == Checked || ui_ctrl.exp_sv_check.check_state() == Checked || ui_ctrl.flat_sv_check.check_state() == Checked;
+    let sv_change_bool: bool = ui_ctrl.lin_sv_check.check_state() == Checked || 
+        ui_ctrl.pol_sv_check.check_state() == Checked || 
+        ui_ctrl.exp_sv_check.check_state() == Checked || 
+        ui_ctrl.flat_sv_check.check_state() == Checked;
     if (sv_change_bool, ui_ctrl.vol_check.check_state()) == (false, Unchecked) {
       return Err(anyhow!("[apply] nothing to apply (sv, vol)"));
     }
@@ -69,9 +72,13 @@ impl SVT {
           s_bpm = 60000.0 / obj.beatlength;
         }
         if obj.time <= end_obj.time {
-          e_bpm = 60000.0 /  obj.beatlength;
+          e_bpm = 60000.0 / obj.beatlength;
         }
       }
+    }
+
+    if s_bpm == 0.0 {
+      return Err(anyhow!("[apply] no uninherited lines detected"));
     }
 
     //convert beatlength values to sv values
@@ -99,6 +106,7 @@ impl SVT {
     //compute change per time tick
     let t_diff = end_obj.time - start_obj.time;
     let sv_diff = e_sv_raw - s_sv_raw;
+    let sv_ratio = e_sv_raw / s_sv_raw;
     let vol_diff = end_obj.volume - start_obj.volume;
     let sv_per_ms = sv_diff / t_diff as f32;
     let vol_per_ms = vol_diff as f32 / t_diff as f32;
@@ -167,7 +175,10 @@ impl SVT {
           s_sv_raw + (obj_time - start_obj.time) as f32 * sv_per_ms
         } else if ui_ctrl.exp_sv_check.check_state() == Checked {
           //exponential
-          s_sv_raw + sv_diff * f32::powf(cmp::max(0, obj_time - start_obj.time) as f32 / t_diff as f32, exp)
+          s_sv_raw * f32::exp((obj_time - start_obj.time) as f32 * f32::ln(sv_ratio) / t_diff as f32)
+        } else if ui_ctrl.pol_sv_check.check_state() == Checked {
+          //polynomial
+          s_sv_raw + sv_diff * f32::powf(cmp::max(0, obj_time - start_obj.time) as f32 / t_diff as f32, pol_exp)
         } else if ui_ctrl.flat_sv_check.check_state() == Checked {
           //flat
           (-100.0 / obj.beatlength + flat_sv) * s_bpm
@@ -228,6 +239,8 @@ impl SVT {
     Ok(())
   }
 
+  //TODO could return a value to indicate whether load was successful
+  //can reduce issues related to diff name changing, file DNE, etc.
   //clear all old map objects, load in a new file and repopulate with latest saved state
   pub fn load_osu(&mut self, filename: &String) {
     let mut bool_timing = false;
