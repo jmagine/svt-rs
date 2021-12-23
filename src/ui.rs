@@ -239,6 +239,11 @@ impl UI {
     //refresh file before doing anything
     self.load_file();
 
+    if self.svt.borrow().all_objs.len() == 0 {
+      self.status.set_text(0, &format!("[apply] no objects loaded, please check map is valid"));
+      return;
+    }
+
     //[debug] print out all objects in their current order
     self.svt.borrow().print_debug();
 
