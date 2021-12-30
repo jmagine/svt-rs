@@ -36,6 +36,7 @@ use crate::svt;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AppOptions {
   pub map: String,
+  pub inh_times: String,
   pub lin_sv: bool,
   pub exp_sv: bool,
   pub pol_sv: bool,
@@ -46,6 +47,7 @@ pub struct AppOptions {
   pub inh_lines: bool,
   pub offset: String,
   pub buffer: String,
+  pub min_spacing: String,
   pub pol_exp: String,
   pub flat_change: String,
   pub ignore_bpm: bool,
@@ -59,6 +61,7 @@ pub struct AppOptions {
 impl Default for AppOptions {
   fn default() -> Self { AppOptions {
       map: String::from(""),
+      inh_times: String::from(""),
       lin_sv: true,
       pol_sv: false,
       exp_sv: false,
@@ -69,6 +72,7 @@ impl Default for AppOptions {
       inh_lines: false,
       offset: String::from("-1"),
       buffer: String::from("3"),
+      min_spacing: String::from("3"),
       pol_exp: String::from("0.5"),
       flat_change: String::from("0.0"),
       ignore_bpm: false,
@@ -194,19 +198,26 @@ pub struct UI {
   #[nwg_control(text: "Buffer", size: (45, 20), position: (25, 42), parent: advanced_options_frame)]
   pub buffer_label: nwg::Label,
 
-  //exponential factor
   #[nwg_control(text: "", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
+  pub min_spacing_text: nwg::TextInput,
+
+  #[nwg_control(text: "Min. Spacing", size: (85, 20), position: (25, 62), parent: advanced_options_frame)]
+  pub min_spacing_label: nwg::Label,
+
+  //exponential factor
+  #[nwg_control(text: "", size: (19, 19), position: (2, 80), parent: advanced_options_frame)]
   #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
   pub pol_exp_text: nwg::TextInput,
 
-  #[nwg_control(text: "Exp.", size: (45, 20), position: (25, 62), parent: advanced_options_frame)]
+  #[nwg_control(text: "Exp.", size: (45, 20), position: (25, 82), parent: advanced_options_frame)]
   pub pol_exp_label: nwg::Label,
 
-  #[nwg_control(text: "", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
+  #[nwg_control(text: "", size: (19, 19), position: (2, 80), parent: advanced_options_frame)]
   #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
   pub flat_sv_text: nwg::TextInput,
 
-  #[nwg_control(text: "SV Change", size: (100, 20), position: (25, 62), parent: advanced_options_frame)]
+  #[nwg_control(text: "SV Change", size: (100, 20), position: (25, 82), parent: advanced_options_frame)]
   pub flat_sv_label: nwg::Label,
 
   //toggles end line/start line BPM
@@ -321,7 +332,7 @@ impl UI {
     }
 
     //merge new points into old ones - delete old point if new one is identical
-    if let Err(err) = self.svt.borrow_mut().write_output_points(self.in_filename.text(), self.out_filename.text(), self.preview_check.check_state() == Checked) {
+    if let Err(err) = self.svt.borrow_mut().write_output_points(3, self.in_filename.text(), self.out_filename.text(), self.preview_check.check_state() == Checked) {
       println!("[apply] error writing output");
       self.status.set_text(0, &err.to_string());
       return;
@@ -450,6 +461,7 @@ impl UI {
     let mut app_options = serde_json::from_str(&app_options_string)
         .unwrap_or(AppOptions{..Default::default()});
 
+    self.inherited_text.set_text(&app_options.inh_times);
     self.in_filename.set_text(&app_options.map);
     self.lin_sv_check.set_check_state(if app_options.lin_sv {Checked} else {Unchecked});
     self.pol_sv_check.set_check_state(if app_options.pol_sv {Checked} else {Unchecked});
@@ -461,6 +473,7 @@ impl UI {
     self.inh_check.set_check_state(if app_options.inh_lines {Checked} else {Unchecked});
     self.offset_text.set_text(&app_options.offset);
     self.buffer_text.set_text(&app_options.buffer);
+    self.min_spacing_text.set_text(&app_options.min_spacing);
     self.pol_exp_text.set_text(&app_options.pol_exp);
     self.flat_sv_text.set_text(&app_options.flat_change);
     self.ign_bpm_check.set_check_state(if app_options.ignore_bpm {Checked} else {Unchecked});
@@ -497,6 +510,7 @@ impl UI {
 
     let app_options = AppOptions{
       map: self.in_filename.text(),
+      inh_times: self.inherited_text.text(),
       lin_sv: self.lin_sv_check.check_state() == Checked,
       pol_sv: self.pol_sv_check.check_state() == Checked,
       exp_sv: self.exp_sv_check.check_state() == Checked,
@@ -507,6 +521,7 @@ impl UI {
       inh_lines: self.inh_check.check_state() == Checked,
       offset: self.offset_text.text(),
       buffer: self.buffer_text.text(),
+      min_spacing: self.min_spacing_text.text(),
       pol_exp: self.pol_exp_text.text(),
       flat_change: self.flat_sv_text.text(),
       ignore_bpm: self.ign_bpm_check.check_state() == Checked,

@@ -57,7 +57,8 @@ impl SVT {
     let start_obj = create_map_object(start_line.to_string(), true).context("[apply] timing point format error")?;
     let end_obj = create_map_object(end_line.to_string(), true).context("[apply] timing point format error")?;
 
-    //TODO although all_objs is sorted at this point, sort can be moved here for clarity/guarantee
+    //TODO although all_objs is sorted at this point, could ensure that it is sorted
+    //self.all_objs.sort_by_key(|k| (k.time, k.class));
 
     //initial pass of all map objects to determine bpm at starting/ending point
     let mut s_bpm = 0.0;
@@ -232,11 +233,10 @@ impl SVT {
         }
       }
     }
+
     Ok(())
   }
 
-  //TODO could return a value to indicate whether load was successful
-  //can reduce issues related to diff name changing, file DNE, etc.
   //clear all old map objects, load in a new file and repopulate with latest saved state
   pub fn load_osu(&mut self, filename: &String) {
     let mut bool_timing = false;
@@ -310,23 +310,66 @@ impl SVT {
   }
 
   //write the current output points to the destination file, using the input file as a template for everything except timing points
-  pub fn write_output_points(&mut self, in_filename: String, out_filename: String, preview: bool) -> Result<()> {
+  pub fn write_output_points(&mut self, min_spacing: i32, in_filename: String, out_filename: String, preview: bool) -> Result<()> {
     //don't write anything if no new objects
     if self.new_objs.len() == 0 {
       return Err(anyhow!("[write] no new objects to apply"));
+    }
+
+    if min_spacing < 0 {
+      return Err(anyhow!("[write] min spacing cannot be negative"));
     }
     
     //sort new objects in chronological order
     //TODO inherited vs uninherited should not apply here, these are the new points
     self.new_objs.sort_by_key(|k| (k.time, k.class));
+    self.new_objs.dedup_by_key(|k| (k.time, k.class));
 
     //build up a vector with all old and new points sorted in chronological, then uninherited > inherited order
+
+    //new_objs is uncleaned representation, can have closely spaced objs
+    //svt_objs is the cleaned version, following minimum spacing
+    //all_objs is all old objects, including uninh lines, inh lines, barlines, and hits
+    //out_objs is the final set of objects to write to file
+    let mut svt_objs: Vec<MapObject> = Vec::new();
     let mut out_objs: Vec<MapObject> = Vec::new();
-    out_objs.extend(self.new_objs.iter().cloned());
+    
+    //remove closely spaced svt points
+    let mut last_obj_time = -1000;
+    for obj in self.new_objs.iter() {
+      if obj.time - last_obj_time > min_spacing {
+        svt_objs.push(obj.clone());
+        last_obj_time = obj.time;
+      }
+    }
+
+    out_objs.extend(svt_objs.iter().cloned());
+
+    let mut svt_objs_iter = svt_objs.iter();
+
+    //new objs and svt_objs should not be len 0 unlness min spacing is set to a ridiculous value
+    let mut svt_obj = svt_objs_iter.next();
+    if svt_obj.is_none() {
+      return Err(anyhow!("[write] no new objects to apply"));
+    }
+    last_obj_time = svt_obj.unwrap().time;
+
     for obj in self.all_objs.iter() {
       //uninherited/inherited lines
       if obj.class == 0 || obj.class == 1 {
-        out_objs.push(obj.clone());
+        //remove non-tool points around tool points
+        while obj.time - last_obj_time > min_spacing {
+          svt_obj = svt_objs_iter.next();
+          if svt_obj.is_none() {
+            break;
+          }
+          last_obj_time = svt_obj.unwrap().time;
+        }
+
+        //only add the point if it is outside min_spacing from tool point
+        if i32::abs(obj.time - last_obj_time) > min_spacing {
+          out_objs.push(obj.clone());
+        }
       }
     }
 
