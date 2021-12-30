@@ -3,12 +3,20 @@ extern crate native_windows_derive as nwd;
 use nwg::CheckBoxState::{Checked, Unchecked};
 use nwd::NwgUi;
 use nwg::stretch::{geometry::{Size, Rect}, style::{Dimension as D, FlexDirection}};
+
 const PT_10: D = D::Points(10.0);
 const PT_5: D = D::Points(5.0);
 const PT_0: D = D::Points(0.0);
 const PT_28: D = D::Points(28.0);
 const MARGIN: Rect<D> = Rect{ start: PT_5, end: PT_5, top: PT_5, bottom: PT_0 };
 const WINDOW_LAYOUT_PADDING: Rect<D> = Rect{ start: PT_0, end: PT_10, top: PT_0, bottom: PT_28 };
+
+const STARTUP_WINDOW_X: i32 = -100;
+const STARTUP_WINDOW_Y: i32 = -100;
+const DEFAULT_WINDOW_WIDTH: u32 = 300;
+const DEFAULT_WINDOW_HEIGHT: u32 = 300;
+const WINDOW_TITLE: &str = "SVT";
+const SVT_OPTIONS_FILE: &str = "svt_config.txt";
 
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
@@ -25,32 +33,58 @@ use std::path::Path;
 use crate::svt;
 
 //TODO consider using this as a general config parameter to pass around in functions involving SVT
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AppOptions {
-  map: String,
-  lin_sv: bool,
-  pol_sv: bool,
-  exp_sv: bool,
-  flat_sv: bool,
-  vol: bool,
-  hits: bool,
-  barlines: bool,
-  inh_lines: bool,
-  offset: String,
-  buffer: String,
-  pol_exp: String,
-  flat_change: String,
-  ignore_bpm: bool,
-  pos_x: i32,
-  pos_y: i32,
-  width: u32,
-  height: u32,
-  experimental: String,
+  pub map: String,
+  pub lin_sv: bool,
+  pub exp_sv: bool,
+  pub pol_sv: bool,
+  pub flat_sv: bool,
+  pub vol: bool,
+  pub hits: bool,
+  pub barlines: bool,
+  pub inh_lines: bool,
+  pub offset: String,
+  pub buffer: String,
+  pub pol_exp: String,
+  pub flat_change: String,
+  pub ignore_bpm: bool,
+  pub pos_x: i32,
+  pub pos_y: i32,
+  pub width: u32,
+  pub height: u32,
+  pub experimental: String,
+}
+
+impl Default for AppOptions {
+  fn default() -> Self { AppOptions {
+      map: String::from(""),
+      lin_sv: true,
+      pol_sv: false,
+      exp_sv: false,
+      flat_sv: false,
+      vol: false,
+      hits: true,
+      barlines: false,
+      inh_lines: false,
+      offset: String::from("-1"),
+      buffer: String::from("3"),
+      pol_exp: String::from("0.5"),
+      flat_change: String::from("0.0"),
+      ignore_bpm: false,
+      pos_x: cmp::max(0, nwg::Monitor::width() / 2 - 150),
+      pos_y: cmp::max(0, nwg::Monitor::height() / 2 - 150),
+      width: DEFAULT_WINDOW_WIDTH,
+      height: DEFAULT_WINDOW_HEIGHT,
+      experimental: String::from(""),
+    }
+  }
 }
 
 #[derive(Default, NwgUi)]
 pub struct UI {
-  #[nwg_control(size: (300, 300), position: (cmp::max(0, nwg::Monitor::width() / 2 - 150), cmp::max(0, nwg::Monitor::height() / 2 - 150)), title: "SVT", accept_files: true, flags: "WINDOW|VISIBLE|MINIMIZE_BOX|RESIZABLE")]
+  //start window as 0-sized and off-screen, then move on-screen after config is loaded to prevent flashing
+  #[nwg_control(size: (0,0), position: (STARTUP_WINDOW_X, STARTUP_WINDOW_Y), title: WINDOW_TITLE, accept_files: true, flags: "WINDOW|VISIBLE|MINIMIZE_BOX|RESIZABLE")]
   #[nwg_events( OnWindowClose: [UI::close_window], OnFileDrop: [UI::drop_file(SELF, EVT_DATA)], OnResizeBegin: [UI::resize_begin], OnResizeEnd: [UI::resize_end] )]
   pub window: nwg::Window,
 
@@ -92,26 +126,27 @@ pub struct UI {
 
   //toggles sv changes
   #[nwg_control(text: "Lin. SV", size: (95, 20), position: (2, 20), check_state: Checked, parent: apply_frame)]
-  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
   pub lin_sv_check: nwg::CheckBox,
 
   //toggles sv changes
   #[nwg_control(text: "Exp. SV", size: (95, 20), position: (2, 40), check_state: Unchecked, parent: apply_frame)]
-  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
   pub exp_sv_check: nwg::CheckBox,
 
   //toggles sv changes
   #[nwg_control(text: "Pol. SV", size: (95, 20), position: (2, 60), check_state: Unchecked, parent: apply_frame)]
-  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
   pub pol_sv_check: nwg::CheckBox,
 
       //toggles sv changes
   #[nwg_control(text: "Flat SV", size: (95, 20), position: (2, 80), check_state: Unchecked, parent: apply_frame)]
-  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL)])]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
   pub flat_sv_check: nwg::CheckBox,
 
   //toggles vol changes
   #[nwg_control(text: "Lin. Vol", size: (95, 20), position: (2, 100), check_state: Checked, parent: apply_frame)]
+  #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
   pub vol_check: nwg::CheckBox,
 
   //outline around the apply to controls
@@ -123,14 +158,17 @@ pub struct UI {
 
   //toggles note changes
   #[nwg_control(text: "Hits", size: (95, 20), position: (2, 20), check_state: Checked, parent: apply_to_frame)]
+  #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
   pub hit_check: nwg::CheckBox,
 
   //toggles barline changes
   #[nwg_control(text: "Barlines", size: (95, 20), position: (2, 40), check_state: Checked, parent: apply_to_frame)]
+  #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
   pub barline_check: nwg::CheckBox,
 
   //toggles inh line changes
   #[nwg_control(text: "Inh. lines", size: (95, 20), position: (2, 60), check_state: Unchecked, parent: apply_to_frame)]
+  #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
   pub inh_check: nwg::CheckBox,
 
   //outline around advanced controls
@@ -141,27 +179,31 @@ pub struct UI {
   pub advanced_options_label: nwg::Label,
 
   //offset time
-  #[nwg_control(text: "-1", size: (19, 19), position: (2, 20), parent: advanced_options_frame)]
+  #[nwg_control(text: "", size: (19, 19), position: (2, 20), parent: advanced_options_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
   pub offset_text: nwg::TextInput,
 
   #[nwg_control(text: "Offset", size: (45, 20), position: (25, 22), parent: advanced_options_frame)]
   pub offset_label: nwg::Label,
 
   //buffer time
-  #[nwg_control(text: "3", size: (19, 19), position: (2, 40), parent: advanced_options_frame)]
+  #[nwg_control(text: "", size: (19, 19), position: (2, 40), parent: advanced_options_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
   pub buffer_text: nwg::TextInput,
 
   #[nwg_control(text: "Buffer", size: (45, 20), position: (25, 42), parent: advanced_options_frame)]
   pub buffer_label: nwg::Label,
 
   //exponential factor
-  #[nwg_control(text: "0.5", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
+  #[nwg_control(text: "", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
   pub pol_exp_text: nwg::TextInput,
 
   #[nwg_control(text: "Exp.", size: (45, 20), position: (25, 62), parent: advanced_options_frame)]
   pub pol_exp_label: nwg::Label,
 
-  #[nwg_control(text: "0.0", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
+  #[nwg_control(text: "", size: (19, 19), position: (2, 60), parent: advanced_options_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
   pub flat_sv_text: nwg::TextInput,
 
   #[nwg_control(text: "SV Change", size: (100, 20), position: (25, 62), parent: advanced_options_frame)]
@@ -169,6 +211,7 @@ pub struct UI {
 
   //toggles end line/start line BPM
   #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: Unchecked, parent: advanced_options_frame)]
+  #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
   pub ign_bpm_check: nwg::CheckBox,
 
   //select map button
@@ -182,11 +225,12 @@ pub struct UI {
 
   //toggles preview
   #[nwg_control(text: "Preview Diff", size: (87, 25), position: (0, 30), check_state: Unchecked, parent: mapselect_frame)]
-  #[nwg_events(OnButtonClick: [UI::fill_out_filename])]
+  #[nwg_events(OnButtonClick: [UI::fill_out_filename, UI::update_config(SELF)])]
   pub preview_check: nwg::CheckBox,
   
   //output map filename
   #[nwg_control(text: "", size: (200, 23), position: (90, 31), parent: mapselect_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
   pub out_filename: nwg::TextInput,
   
   //place apply button near bottom
@@ -200,20 +244,21 @@ pub struct UI {
   pub undo_button: nwg::Button,
 
   //place status bar at the very bottom
-  #[nwg_control(text: "[map] no map selected (Select Mapfile or drag one in)")]
+  #[nwg_control(text: "[map] no map selected (Select Map or drag one in)")]
   pub status: nwg::StatusBar,
 
   //open file dialog
   #[nwg_resource(title: "Open File", action: nwg::FileDialogAction::Open, filters: "osu(*.osu)")]
   pub file_dialog: nwg::FileDialog,
 
-  pub svt: RefCell<svt::SVT>,
+  pub options: RefCell<AppOptions>, //reference to options which are updated when UI elements are clicked
+  pub svt: RefCell<svt::SVT>, //reference to svt which contains logic for tool
   pub pos_x: RefCell<i32>,
   pub pos_y: RefCell<i32>,
 }
 
 impl UI {
-  pub fn init(&self) {
+  pub fn init(&self, svt_app: svt::SVT) {
     //set icon on taskbar and on window top left
     let icon_bytes = include_bytes!("../assets/svt.ico");
     let mut icon = nwg::Icon::default();
@@ -223,16 +268,22 @@ impl UI {
       .build(&mut icon);
     self.window.set_icon(Some(&icon));
 
-    //load config and sset apply button accordingly
+    //load config and set apply button accordingly
     if self.load_config().is_err() {
       println!("[load] couldn't load config properly");
       self.apply_button.set_enabled(false);
     }
 
+    let options = self.options.borrow_mut();
+    self.window.set_size(options.width, options.height);
+    self.window.set_position(options.pos_x, options.pos_y);
+
     //always disable undo button by default
     self.undo_button.set_enabled(false);
 
     self.set_sv_mode(&self.lin_sv_check);
+
+    self.svt.replace(svt_app);
   }
 
   fn apply_changes(&self) {
@@ -257,7 +308,7 @@ impl UI {
       start_line = lines.next();
       end_line = lines.next();
       if let (Some(start_l), Some(end_l)) = (start_line, end_line) {
-        if let Err(err) = self.svt.borrow_mut().apply_timing(start_l, end_l, self) {
+        if let Err(err) = self.svt.borrow_mut().apply_timing(start_l, end_l, &*self.options.borrow()) {
           //if error is encountered, stop applying and update status bar
           println!("[apply] error applying timing {}->{}", start_l, end_l);
           self.status.set_text(0, &err.to_string());
@@ -290,6 +341,8 @@ impl UI {
   }
   
   fn close_window(&self) {
+    self.update_config();
+
     if self.save_config().is_err() {
       println!("[close] failed to save config");
       return;
@@ -393,17 +446,9 @@ impl UI {
 
   fn load_config(&self) -> Result<()> {
     // read file
-    let app_options_string = fs::read_to_string("svt_config.txt")?;    
+    let app_options_string = fs::read_to_string(SVT_OPTIONS_FILE)?;    
     let mut app_options = serde_json::from_str(&app_options_string)
-        .unwrap_or(AppOptions{
-            lin_sv: true,
-            vol: true,
-            hits: true,
-            barlines: true,
-            offset: String::from("-1"), 
-            buffer: String::from("3"), 
-            pol_exp: String::from("0.5"), 
-            ..Default::default()});
+        .unwrap_or(AppOptions{..Default::default()});
 
     self.in_filename.set_text(&app_options.map);
     self.lin_sv_check.set_check_state(if app_options.lin_sv {Checked} else {Unchecked});
@@ -440,13 +485,13 @@ impl UI {
       self.load_file()
     }
 
+    self.options.replace(app_options);
+
     Ok(())
   }
 
-  fn save_config(&self) -> Result<()> {
-    let mut out_string = String::new();
-    let mut out_file = File::create("svt_config.txt").unwrap();
-
+  //recheck and update all options
+  fn update_config(&self) {
     let (x,y) = self.window.position();
     let (w,h) = self.window.size();
 
@@ -472,19 +517,27 @@ impl UI {
       experimental: String::from(""),
     };
 
-    out_string += &serde_json::to_string_pretty(&app_options).unwrap();
+    self.options.replace(app_options);
+  }
 
+  //save current options to file
+  fn save_config(&self) -> Result<()> {
+    let mut out_string = String::new();
+    let mut out_file = File::create(SVT_OPTIONS_FILE).unwrap();
+
+    out_string += &serde_json::to_string_pretty(&*self.options.borrow()).unwrap();
     let _ = write!(&mut out_file, "{}", out_string);
     Ok(())
   }
 
+  //save current position
   fn resize_begin(&self) {
-    //save current position
     let (x,y) = self.window.position();
     self.pos_x.replace(x);
     self.pos_y.replace(y);
   }
 
+  //load the position from resize start and validate width/height
   fn resize_end(&self) {
     let (w,h) = self.window.size();
 
