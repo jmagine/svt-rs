@@ -310,14 +310,16 @@ impl SVT {
   }
 
   //write the current output points to the destination file, using the input file as a template for everything except timing points
-  pub fn write_output_points(&mut self, min_spacing: i32, in_filename: String, out_filename: String, preview: bool) -> Result<()> {
+  pub fn write_output_points(&mut self, min_spacing_text: String, in_filename: String, out_filename: String, preview: bool) -> Result<usize> {
     //don't write anything if no new objects
     if self.new_objs.len() == 0 {
       return Err(anyhow!("[write] no new objects to apply"));
     }
 
-    if min_spacing < 0 {
-      return Err(anyhow!("[write] min spacing cannot be negative"));
+    let min_spacing = min_spacing_text.parse::<i32>().context("[apply] invalid spacing")?;
+
+    if min_spacing < 0 || min_spacing > 1000 {
+      return Err(anyhow!("[write] min spacing cannot be negative or excessively high"));
     }
     
     //sort new objects in chronological order
@@ -356,7 +358,9 @@ impl SVT {
 
     for obj in self.all_objs.iter() {
       //uninherited/inherited lines
-      if obj.class == 0 || obj.class == 1 {
+      if obj.class == 0 {
+        out_objs.push(obj.clone());
+      } else if obj.class == 1 {
         //remove non-tool points around tool points
         while obj.time - last_obj_time > min_spacing {
           svt_obj = svt_objs_iter.next();
@@ -423,7 +427,7 @@ impl SVT {
 
     let mut out_file = File::create(out_filename).unwrap();
     let _ = write!(&mut out_file, "{}", out_string);
-    Ok(())
+    Ok(svt_objs.len())
   }
 
   pub fn print_debug(&self) {

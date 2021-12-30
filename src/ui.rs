@@ -76,8 +76,8 @@ impl Default for AppOptions {
       pol_exp: String::from("0.5"),
       flat_change: String::from("0.0"),
       ignore_bpm: false,
-      pos_x: cmp::max(0, nwg::Monitor::width() / 2 - 150),
-      pos_y: cmp::max(0, nwg::Monitor::height() / 2 - 150),
+      pos_x: cmp::max(0, nwg::Monitor::width() / 2 - (DEFAULT_WINDOW_WIDTH / 2) as i32),
+      pos_y: cmp::max(0, nwg::Monitor::height() / 2 - (DEFAULT_WINDOW_HEIGHT / 2) as i32),
       width: DEFAULT_WINDOW_WIDTH,
       height: DEFAULT_WINDOW_HEIGHT,
       experimental: String::from(""),
@@ -321,7 +321,7 @@ impl UI {
       if let (Some(start_l), Some(end_l)) = (start_line, end_line) {
         if let Err(err) = self.svt.borrow_mut().apply_timing(start_l, end_l, &*self.options.borrow()) {
           //if error is encountered, stop applying and update status bar
-          println!("[apply] error applying timing {}->{}", start_l, end_l);
+          println!("[apply] error applying timing {} -> {}", start_l, end_l);
           self.status.set_text(0, &err.to_string());
           return;
         }
@@ -332,9 +332,11 @@ impl UI {
     }
 
     //merge new points into old ones - delete old point if new one is identical
-    if let Err(err) = self.svt.borrow_mut().write_output_points(3, self.in_filename.text(), self.out_filename.text(), self.preview_check.check_state() == Checked) {
+    let write_result = self.svt.borrow_mut().write_output_points(self.min_spacing_text.text(), self.in_filename.text(), self.out_filename.text(), self.preview_check.check_state() == Checked);
+    
+    if write_result.is_err() {
       println!("[apply] error writing output");
-      self.status.set_text(0, &err.to_string());
+      self.status.set_text(0, &write_result.unwrap_err().to_string());
       return;
     }
 
@@ -348,7 +350,7 @@ impl UI {
     self.undo_button.set_enabled(true);
 
     //update status bar with change count on success
-    self.status.set_text(0, &format!("[apply] {} changes applied", self.svt.borrow().new_objs.len()));
+    self.status.set_text(0, &format!("[apply] {} changes applied", write_result.unwrap()));
   }
   
   fn close_window(&self) {
