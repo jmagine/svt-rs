@@ -47,7 +47,7 @@ impl SVT {
     let t_off = opt.offset.parse::<i32>().context("[apply] invalid offset")?;
     let t_buf = opt.buffer.parse::<i32>().context("[apply] invalid buffer")?;
 
-    let sv_change_bool = opt.lin_sv || opt.pol_sv || opt.exp_sv || opt.flat_sv;
+    let sv_change_bool = opt.lin_sv || opt.pol_sv || opt.sin_sv || opt.exp_sv || opt.flat_sv;
 
     //not applying sv and not applying volume
     if !sv_change_bool && !opt.vol {
@@ -176,6 +176,8 @@ impl SVT {
         } else if opt.pol_sv {
           //polynomial
           s_sv_raw + sv_diff * f32::powf(cmp::max(0, obj_time - start_obj.time) as f32 / t_diff as f32, pol_exp)
+        } else if opt.sin_sv {
+          s_sv_raw + sv_diff * (1 as f32 - f32::cos(std::f32::consts::PI * (obj_time - start_obj.time) as f32 / t_diff as f32)) / 2 as f32
         } else if opt.flat_sv {
           //flat
           (-100.0 / obj.beatlength + flat_sv) * s_bpm
