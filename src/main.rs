@@ -66,6 +66,7 @@ fn main() {
     .register(&svt_ui.lin_sv_check, "Change slider velocity linearly for selected objects (hits/barlines/inh. lines)")
     .register(&svt_ui.exp_sv_check, "Change slider velocity exponentially for selected objects (hits/barlines/inh. lines)")
     .register(&svt_ui.pol_sv_check, "Change slider velocity polynomially using exp. factor for selected objects (hits/barlines/inh. lines)")
+    .register(&svt_ui.sin_sv_check, "Change slider velocity sinusoidally for selected objects (hits/barlines/inh. lines)")
     .register(&svt_ui.flat_sv_check, "Flat SV change for selected inh. lines")
     .register(&svt_ui.vol_check, "Change volume smoothly for selected objects (hits/barlines/inh. lines)")
     .register(&svt_ui.hit_check, "Change hitobjects (notes, spinners, sliders) between start/end points")
