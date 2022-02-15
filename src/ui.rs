@@ -40,6 +40,7 @@ pub struct AppOptions {
   pub lin_sv: bool,
   pub exp_sv: bool,
   pub pol_sv: bool,
+  pub sin_sv: bool,
   pub flat_sv: bool,
   pub vol: bool,
   pub hits: bool,
@@ -64,6 +65,7 @@ impl Default for AppOptions {
       inh_times: String::from(""),
       lin_sv: true,
       pol_sv: false,
+      sin_sv: false,
       exp_sv: false,
       flat_sv: false,
       vol: false,
@@ -143,13 +145,18 @@ pub struct UI {
   #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
   pub pol_sv_check: nwg::CheckBox,
 
+  //toggles sv changes
+  #[nwg_control(text: "Sin. SV", size: (95, 20), position: (2, 80), check_state: Unchecked, parent: apply_frame)]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
+  pub sin_sv_check: nwg::CheckBox,
+
       //toggles sv changes
-  #[nwg_control(text: "Flat SV", size: (95, 20), position: (2, 80), check_state: Unchecked, parent: apply_frame)]
+  #[nwg_control(text: "Flat SV", size: (95, 20), position: (2, 100), check_state: Unchecked, parent: apply_frame)]
   #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
   pub flat_sv_check: nwg::CheckBox,
 
   //toggles vol changes
-  #[nwg_control(text: "Lin. Vol", size: (95, 20), position: (2, 100), check_state: Checked, parent: apply_frame)]
+  #[nwg_control(text: "Lin. Vol", size: (95, 20), position: (2, 120), check_state: Checked, parent: apply_frame)]
   #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
   pub vol_check: nwg::CheckBox,
 
@@ -467,6 +474,7 @@ impl UI {
     self.in_filename.set_text(&app_options.map);
     self.lin_sv_check.set_check_state(if app_options.lin_sv {Checked} else {Unchecked});
     self.pol_sv_check.set_check_state(if app_options.pol_sv {Checked} else {Unchecked});
+    self.sin_sv_check.set_check_state(if app_options.sin_sv {Checked} else {Unchecked});
     self.exp_sv_check.set_check_state(if app_options.exp_sv {Checked} else {Unchecked});
     self.flat_sv_check.set_check_state(if app_options.flat_sv {Checked} else {Unchecked});
     self.vol_check.set_check_state(if app_options.vol {Checked} else {Unchecked});
@@ -515,6 +523,7 @@ impl UI {
       inh_times: self.inherited_text.text(),
       lin_sv: self.lin_sv_check.check_state() == Checked,
       pol_sv: self.pol_sv_check.check_state() == Checked,
+      sin_sv: self.sin_sv_check.check_state() == Checked,
       exp_sv: self.exp_sv_check.check_state() == Checked,
       flat_sv: self.flat_sv_check.check_state() == Checked,
       vol: self.vol_check.check_state() == Checked,
@@ -585,22 +594,33 @@ impl UI {
         self.pol_sv_check.set_check_state(Unchecked);
         self.exp_sv_check.set_check_state(Unchecked);
         self.flat_sv_check.set_check_state(Unchecked);
+        self.sin_sv_check.set_check_state(Unchecked);
       }
     } else if ctrl == &self.pol_sv_check {
       self.lin_sv_check.set_check_state(Unchecked);
       self.exp_sv_check.set_check_state(Unchecked);
       self.flat_sv_check.set_check_state(Unchecked);
+      self.sin_sv_check.set_check_state(Unchecked);
     } else if ctrl == &self.exp_sv_check {
       if self.exp_sv_check.check_state() == Checked {
         self.lin_sv_check.set_check_state(Unchecked);
         self.pol_sv_check.set_check_state(Unchecked);
         self.flat_sv_check.set_check_state(Unchecked);
+        self.sin_sv_check.set_check_state(Unchecked);
       }
     } else if ctrl == &self.flat_sv_check {
       if self.flat_sv_check.check_state() == Checked {
         self.lin_sv_check.set_check_state(Unchecked);
         self.pol_sv_check.set_check_state(Unchecked);
         self.exp_sv_check.set_check_state(Unchecked);
+        self.sin_sv_check.set_check_state(Unchecked);
+      }
+    } else if ctrl == &self.sin_sv_check {
+      if self.sin_sv_check.check_state() == Checked {
+        self.lin_sv_check.set_check_state(Unchecked);
+        self.pol_sv_check.set_check_state(Unchecked);
+        self.exp_sv_check.set_check_state(Unchecked);
+        self.flat_sv_check.set_check_state(Unchecked);
       }
     }
 
