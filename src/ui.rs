@@ -14,7 +14,7 @@ const WINDOW_LAYOUT_PADDING: Rect<D> = Rect{ start: PT_0, end: PT_10, top: PT_0,
 const STARTUP_WINDOW_X: i32 = -100;
 const STARTUP_WINDOW_Y: i32 = -100;
 const DEFAULT_WINDOW_WIDTH: u32 = 300;
-const DEFAULT_WINDOW_HEIGHT: u32 = 300;
+const DEFAULT_WINDOW_HEIGHT: u32 = 350;
 const WINDOW_TITLE: &str = "SVT";
 const SVT_OPTIONS_FILE: &str = "svt_config.txt";
 
@@ -100,14 +100,14 @@ pub struct UI {
   //timing point input
   #[nwg_control(text: "", flags: "VISIBLE|AUTOVSCROLL|TAB_STOP")]
   #[nwg_layout_item(layout: window_layout, margin: MARGIN,
-    size: Size { width: D::Percent(1.0), height: D::Percent(0.15) },
+    size: Size { width: D::Percent(1.0), height: D::Percent(0.10) },
     flex_grow: 1.0,
   )]
   pub inherited_text: nwg::TextBox,
 
   #[nwg_control(flags: "VISIBLE")]
   #[nwg_layout_item(layout: window_layout, margin: MARGIN,
-    size: Size { width: D::Percent(1.0), height: D::Points(120.0) },
+    size: Size { width: D::Percent(1.0), height: D::Points(140.0) },
   )]
   pub options_frame: nwg::Frame,
 
@@ -124,7 +124,7 @@ pub struct UI {
   pub applyundo_frame: nwg::Frame,
 
   //outline around the apply controls
-  #[nwg_control(size: (60, 120), position: (0, 0), parent: options_frame)]
+  #[nwg_control(size: (60, 140), position: (0, 0), parent: options_frame)]
   pub apply_frame: nwg::Frame,
 
   #[nwg_control(text: "Apply:", size: (45, 20), position: (2, 0), parent: apply_frame)]
@@ -161,7 +161,7 @@ pub struct UI {
   pub vol_check: nwg::CheckBox,
 
   //outline around the apply to controls
-  #[nwg_control(size: (70, 120), position: (59, 0), parent: options_frame)]
+  #[nwg_control(size: (70, 140), position: (59, 0), parent: options_frame)]
   pub apply_to_frame: nwg::Frame,
 
   #[nwg_control(text: "To:", size: (65, 20), position: (2, 0), parent: apply_to_frame)]
@@ -183,7 +183,7 @@ pub struct UI {
   pub inh_check: nwg::CheckBox,
 
   //outline around advanced controls
-  #[nwg_control(size: (162, 120), position: (128, 0), parent: options_frame)]
+  #[nwg_control(size: (162, 140), position: (128, 0), parent: options_frame)]
   pub advanced_options_frame: nwg::Frame,
 
   #[nwg_control(text: "Advanced Options:", size: (195, 20), position: (2, 0), parent: advanced_options_frame)]
@@ -604,8 +604,8 @@ impl UI {
       w_new = 300;
     }
 
-    if h < 300 {
-      h_new = 300;
+    if h < 350 {
+      h_new = 350;
     }
 
     if (w_new,h_new) != (w,h) {
