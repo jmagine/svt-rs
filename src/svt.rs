@@ -475,7 +475,8 @@ fn create_map_object(p: String, timingpoint: bool) -> Result<MapObject> {
       return Err(anyhow!("[create] timing: incorrect format {}", p));
     }
   
-    let time = p_tokens[0].parse::<i32>()?;
+    let time_raw = p_tokens[0].parse::<f32>()?;
+    let time = time_raw.round() as i32;
     let beatlength = p_tokens[1].parse::<f32>()?;
     let meter = p_tokens[2].parse::<i32>()?;
     let sampleset = p_tokens[3].parse::<i32>()?;
@@ -491,7 +492,8 @@ fn create_map_object(p: String, timingpoint: bool) -> Result<MapObject> {
       return Err(anyhow!("[create] hit: incorrect format {}", p));
     }
 
-    let time = p_tokens[2].parse::<i32>()?;
+    let time_raw = p_tokens[2].parse::<f32>()?;
+    let time = time_raw.round() as i32;
 
     MapObject{class: 3, time: time, data: String::from(""), ..Default::default()}
   };

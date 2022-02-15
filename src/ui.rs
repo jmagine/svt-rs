@@ -18,7 +18,7 @@ const DEFAULT_WINDOW_HEIGHT: u32 = 300;
 const WINDOW_TITLE: &str = "SVT";
 const SVT_OPTIONS_FILE: &str = "svt_config.txt";
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::{Serialize, Deserialize};
 use libxch;
 
@@ -350,7 +350,7 @@ impl UI {
     self.undo_button.set_enabled(true);
 
     //update status bar with change count on success
-    self.status.set_text(0, &format!("[apply] {} changes applied", write_result.unwrap()));
+    self.status.set_text(0, &format!("[apply] {} lines applied", write_result.unwrap()));
   }
   
   fn close_window(&self) {
@@ -364,7 +364,7 @@ impl UI {
   }
 
   fn drop_file(&self, data: &nwg::EventData) {
-    self.in_filename.set_text(&data.on_file_drop().files().pop().unwrap());
+    self.in_filename.set_text(&data.on_file_drop().files().pop().unwrap_or(String::from("failed_to_import_for_some_reason.osu")));
     self.fill_out_filename();
     self.load_file();
   }
@@ -374,14 +374,27 @@ impl UI {
       let in_filename = &self.in_filename.text();
 
       //prevent paths without parents or filenames from crashing
-      let folder = Path::new(in_filename).parent();
-      let name_osu = Path::new(in_filename).file_name();
+      let path_folder = Path::new(in_filename).parent();
+      let path_osu = Path::new(in_filename).file_name();
 
       //TODO check path is valid maybe?
-      if let (Some(folder), Some(name_osu)) = (folder, name_osu) {
-        self.out_filename.set_text(&format!("{}/{}[{}].osu", folder.to_str().unwrap(), name_osu.to_str().unwrap().split("[").nth(0).unwrap(), "preview"));
+      //TODO fix bracket validation - file without brackets should be cut at .osu instead
+      if let (Some(path_folder), Some(path_osu)) = (path_folder, path_osu) {
+        
+        if let Some(name_osu) = path_osu.to_str() {
+          let preview_cut = if name_osu.contains("[") {
+            name_osu.split("[").nth(0).unwrap_or("")
+          } else {
+            name_osu.split(".").nth(0).unwrap_or("")
+          };
+
+          self.out_filename.set_text(&format!("{}/{}[{}].osu", path_folder.to_str().unwrap_or(""), preview_cut, "preview"));
+        } else {
+          println!("[fof] path name didn't unwrap correctly");
+        }
       } else {
-        println!("[pre] path invalid");
+        println!("[fof] issue with either file directory or name: [{}]", in_filename);
+        self.status.set_text(0, &format!("[fof] issue with input filename"));
       }
     } else {
       self.out_filename.set_text(&self.in_filename.text());
@@ -409,20 +422,26 @@ impl UI {
       return;
     }
 
-    let folder = String::from(Path::new(&filename).parent().unwrap().to_str().unwrap());
-    println!("[load] folder: {}", folder);
+    //let folder = String::from(Path::new(&filename).parent().unwrap().to_str().unwrap());
+    
+    let path_folder = Path::new(&filename).parent();
+    let path_osu = Path::new(&filename).file_name();
 
-    println!("[load] loading {}", Path::new(&filename).file_name().unwrap().to_str().unwrap());
-    self.svt.borrow_mut().load_osu(&filename);
+    if let (Some(path_folder), Some(path_osu)) = (path_folder, path_osu) {
+      println!("[load] folder: {}", path_folder.to_str().unwrap_or("folder_dne"));
+      println!("[load] file: {}", path_osu.to_str().unwrap_or("filename_dne.osu"));
+      println!("[load] load starting");
+      self.svt.borrow_mut().load_osu(&filename);
 
-    if self.save_config().is_err() {
-      self.status.set_text(0, &format!("[apply] couldn't save config"));
-      return;
+      if self.save_config().is_err() {
+        self.status.set_text(0, &format!("[apply] couldn't save config"));
+        return;
+      }
+      self.apply_button.set_enabled(true);
+      self.status.set_text(0, &format!("editing {}", path_osu.to_str().unwrap_or("filename_dne.osu")));
+    } else {
+      self.status.set_text(0, &format!("[load] issue with either file directory or name"));
     }
-
-    self.apply_button.set_enabled(true);
-
-    self.status.set_text(0, &format!("editing {}", Path::new(&filename).file_name().unwrap().to_str().unwrap()));
   }
 
   fn open_file_browser(&self) {
@@ -434,11 +453,16 @@ impl UI {
   
     if self.file_dialog.run(Some(&self.window)) {
       self.in_filename.set_text("");
-      if let Ok(directory) = self.file_dialog.get_selected_item() {
-        let dir = directory.into_string().unwrap();
-        self.in_filename.set_text(&dir);
-        self.fill_out_filename();
-        self.load_file();
+      if let Ok(selected) = self.file_dialog.get_selected_item() {
+        if let Ok(selected_str) = selected.into_string() {
+          self.in_filename.set_text(&selected_str);
+          self.fill_out_filename();
+          self.load_file();
+        } else {
+          self.status.set_text(0, &format!("[load] failed to load file: into_string failed"));
+        }        
+      } else {
+        self.status.set_text(0, &format!("[load] failed to load file: get_selected_item failed"));
       }
     }
   }
@@ -459,9 +483,8 @@ impl UI {
 
   fn load_config(&self) -> Result<()> {
     // read file
-    let app_options_string = fs::read_to_string(SVT_OPTIONS_FILE)?;    
-    let mut app_options = serde_json::from_str(&app_options_string)
-        .unwrap_or(AppOptions{..Default::default()});
+    let app_options_string = fs::read_to_string(SVT_OPTIONS_FILE).unwrap_or(String::from(""));
+    let mut app_options = serde_json::from_str(&app_options_string).unwrap_or(AppOptions{..Default::default()});
 
     self.inherited_text.set_text(&app_options.inh_times);
     self.in_filename.set_text(&app_options.map);
@@ -540,7 +563,14 @@ impl UI {
   //save current options to file
   fn save_config(&self) -> Result<()> {
     let mut out_string = String::new();
-    let mut out_file = File::create(SVT_OPTIONS_FILE).unwrap();
+    let out_file_res = File::create(SVT_OPTIONS_FILE);
+
+    //couldn't create config file, notify parent function
+    if out_file_res.is_err() {
+      return Err(anyhow!("Couldn't save config file!"));
+    }
+
+    let mut out_file = out_file_res.unwrap();
 
     out_string += &serde_json::to_string_pretty(&*self.options.borrow()).unwrap();
     let _ = write!(&mut out_file, "{}", out_string);

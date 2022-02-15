@@ -6,10 +6,39 @@
 extern crate native_windows_gui as nwg;
 use nwg::NativeUi;
 
+//extern crate backtrace;
+//use backtrace::Backtrace;
+//use std::panic;
+
 mod ui;
 mod svt;
 
 fn main() {
+  /*
+  panic::set_hook(Box::new(move |info| {
+    // Docs say info.location() allways returns some atm
+    if let Some(location) = info.location() {
+      println!("Panic at {}:{}", location.file(), location.line());
+  }
+  
+  let trace = Backtrace::new();
+  
+  for frame in trace.frames().iter() {
+      for symbol in frame.symbols().iter() {
+          // TODO These unwraps are not safe, and will cause a second panic
+          println!(
+              "  > {} at {}:{}", 
+              symbol.name().unwrap(),
+              symbol.filename().unwrap().to_string_lossy(),
+              symbol.lineno().unwrap(),
+          );
+      }
+  }
+  }));
+
+  panic!("hi");
+  */
+
   nwg::init().expect("[main] failed to init nwg");
 
   //use Segoe UI with 16 size as default font
