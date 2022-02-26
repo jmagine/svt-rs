@@ -38,10 +38,16 @@ impl SVT {
     } else {
       1.0
     };
-    let flat_sv = if opt.flat_sv {
+    let flat_sv = if opt.flat_sv && !opt.flat_scaling {
       opt.flat_change.parse::<f32>().context("[apply] invalid flat sv")?
     } else {
       0.0
+    };
+
+    let flat_sv_scaling = if opt.flat_sv && opt.flat_scaling {
+      opt.flat_scaling_change.parse::<f32>().context("[apply] invalid flat sv scaling")?
+    } else {
+      1.0
     };
 
     let t_off = opt.offset.parse::<i32>().context("[apply] invalid offset")?;
@@ -180,7 +186,11 @@ impl SVT {
           s_sv_raw + sv_diff * (1 as f32 - f32::cos(std::f32::consts::PI * (obj_time - start_obj.time) as f32 / t_diff as f32)) / 2 as f32
         } else if opt.flat_sv {
           //flat
-          (-100.0 / obj.beatlength + flat_sv) * s_bpm
+          if opt.flat_scaling {
+            (-100.0 / obj.beatlength) * s_bpm * flat_sv_scaling
+          } else {
+            (-100.0 / obj.beatlength + flat_sv) * s_bpm
+          }
         } else {
           -100.0
         };

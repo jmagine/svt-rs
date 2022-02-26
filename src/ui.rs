@@ -50,7 +50,9 @@ pub struct AppOptions {
   pub buffer: String,
   pub min_spacing: String,
   pub pol_exp: String,
+  pub flat_scaling: bool,
   pub flat_change: String,
+  pub flat_scaling_change: String,
   pub ignore_bpm: bool,
   pub pos_x: i32,
   pub pos_y: i32,
@@ -76,7 +78,9 @@ impl Default for AppOptions {
       buffer: String::from("3"),
       min_spacing: String::from("3"),
       pol_exp: String::from("0.5"),
+      flat_scaling: false,
       flat_change: String::from("0.0"),
+      flat_scaling_change: String::from("1.0"),
       ignore_bpm: false,
       pos_x: cmp::max(0, nwg::Monitor::width() / 2 - (DEFAULT_WINDOW_WIDTH / 2) as i32),
       pos_y: cmp::max(0, nwg::Monitor::height() / 2 - (DEFAULT_WINDOW_HEIGHT / 2) as i32),
@@ -227,6 +231,17 @@ pub struct UI {
   #[nwg_control(text: "SV Change", size: (100, 20), position: (25, 82), parent: advanced_options_frame)]
   pub flat_sv_label: nwg::Label,
 
+  #[nwg_control(text: "", size: (19, 19), position: (2, 80), parent: advanced_options_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
+  pub flat_sv_scale_text: nwg::TextInput,
+
+  #[nwg_control(text: "SV Scaling", size: (100, 20), position: (25, 82), parent: advanced_options_frame)]
+  pub flat_sv_scale_label: nwg::Label,
+
+  #[nwg_control(text: "Mult. Scaling", size: (105, 20), position: (75, 40), check_state: Unchecked, parent: advanced_options_frame)]
+  #[nwg_events(OnButtonClick: [UI::update_config(SELF), UI::set_flat_scaling(SELF)])]
+  pub flat_sv_scale_check: nwg::CheckBox,
+
   //toggles end line/start line BPM
   #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: Unchecked, parent: advanced_options_frame)]
   #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
@@ -300,6 +315,7 @@ impl UI {
     self.undo_button.set_enabled(false);
 
     self.set_sv_mode(&self.lin_sv_check);
+    self.set_flat_scaling();
 
     self.svt.replace(svt_app);
   }
@@ -349,8 +365,9 @@ impl UI {
 
     //save config after successful output point write
     if self.save_config().is_err() {
-      self.status.set_text(0, &format!("[apply] couldn't save config"));
-      return;
+      println!("[apply] failed to save config file")
+      //self.status.set_text(0, &format!("[apply] couldn't save config"));
+      //return;
     }
 
     //enable undo button
@@ -364,8 +381,8 @@ impl UI {
     self.update_config();
 
     if self.save_config().is_err() {
-      println!("[close] failed to save config");
-      return;
+      println!("[close] failed to save config file")
+      //return;
     }
     nwg::stop_thread_dispatch();
   }
@@ -441,8 +458,9 @@ impl UI {
       self.svt.borrow_mut().load_osu(&filename);
 
       if self.save_config().is_err() {
-        self.status.set_text(0, &format!("[apply] couldn't save config"));
-        return;
+        println!("[load] failed to save config file")
+        //self.status.set_text(0, &format!("[apply] couldn't save config"));
+        //return;
       }
       self.apply_button.set_enabled(true);
       self.status.set_text(0, &format!("editing {}", path_osu.to_str().unwrap_or("filename_dne.osu")));
@@ -508,7 +526,9 @@ impl UI {
     self.buffer_text.set_text(&app_options.buffer);
     self.min_spacing_text.set_text(&app_options.min_spacing);
     self.pol_exp_text.set_text(&app_options.pol_exp);
+    self.flat_sv_scale_check.set_check_state(if app_options.flat_scaling {Checked} else {Unchecked});
     self.flat_sv_text.set_text(&app_options.flat_change);
+    self.flat_sv_scale_text.set_text(&app_options.flat_scaling_change);
     self.ign_bpm_check.set_check_state(if app_options.ignore_bpm {Checked} else {Unchecked});
 
     //validation on x/y
@@ -557,7 +577,9 @@ impl UI {
       buffer: self.buffer_text.text(),
       min_spacing: self.min_spacing_text.text(),
       pol_exp: self.pol_exp_text.text(),
+      flat_scaling: self.flat_sv_scale_check.check_state() == Checked,
       flat_change: self.flat_sv_text.text(),
+      flat_scaling_change: self.flat_sv_scale_text.text(),
       ignore_bpm: self.ign_bpm_check.check_state() == Checked,
       pos_x: x,
       pos_y: y,
@@ -664,15 +686,22 @@ impl UI {
     }
 
     if self.flat_sv_check.check_state() == Checked {
-      self.flat_sv_text.set_visible(true);
-      self.flat_sv_label.set_visible(true);
+      self.flat_sv_scale_check.set_visible(true);
       self.hit_check.set_enabled(false);
       self.barline_check.set_enabled(false);
       self.inh_check.set_enabled(false);
       self.ign_bpm_check.set_enabled(false);
+
+      //set visiblity of all flat scaling advanced options
+      self.set_flat_scaling();
     } else {
+      //hide all flat scaling advanced options
+      self.flat_sv_scale_check.set_visible(false);
       self.flat_sv_text.set_visible(false);
       self.flat_sv_label.set_visible(false);
+      self.flat_sv_scale_text.set_visible(false);
+      self.flat_sv_scale_label.set_visible(false);
+
       self.hit_check.set_enabled(true);
       self.barline_check.set_enabled(true);
       self.inh_check.set_enabled(true);
@@ -681,9 +710,23 @@ impl UI {
 
     //set visibility of sv options
     if ctrl.check_state() == Checked {
-      self.ign_bpm_check.set_visible(true);
+      self.ign_bpm_check.set_enabled(true);
     } else {
-      self.ign_bpm_check.set_visible(false);
+      self.ign_bpm_check.set_enabled(false);
+    }
+  }
+
+  fn set_flat_scaling(&self) {
+    if self.flat_sv_scale_check.check_state() == Checked {
+      self.flat_sv_scale_text.set_visible(true);
+      self.flat_sv_scale_label.set_visible(true);
+      self.flat_sv_text.set_visible(false);
+      self.flat_sv_label.set_visible(false);
+    } else {
+      self.flat_sv_scale_text.set_visible(false);
+      self.flat_sv_scale_label.set_visible(false);
+      self.flat_sv_text.set_visible(true);
+      self.flat_sv_label.set_visible(true);
     }
   }
 }
