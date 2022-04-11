@@ -58,6 +58,7 @@ pub struct AppOptions {
   pub pos_y: i32,
   pub width: u32,
   pub height: u32,
+  pub tooltips: bool,
   pub experimental: String,
 }
 
@@ -86,6 +87,7 @@ impl Default for AppOptions {
       pos_y: cmp::max(0, nwg::Monitor::height() / 2 - (DEFAULT_WINDOW_HEIGHT / 2) as i32),
       width: DEFAULT_WINDOW_WIDTH,
       height: DEFAULT_WINDOW_HEIGHT,
+      tooltips: true,
       experimental: String::from(""),
     }
   }
@@ -543,6 +545,8 @@ impl UI {
     self.window.set_size(app_options.width, app_options.height);
     self.resize_begin();
     self.resize_end();
+
+    self.options.replace(app_options);
     
     self.fill_out_filename();
     if self.in_filename.text().len() == 0 {
@@ -550,8 +554,6 @@ impl UI {
     } else {
       self.load_file()
     }
-
-    self.options.replace(app_options);
 
     Ok(())
   }
@@ -585,6 +587,7 @@ impl UI {
       pos_y: y,
       width: w,
       height: h,
+      tooltips: self.options.borrow().tooltips,
       experimental: String::from(""),
     };
 
