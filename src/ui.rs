@@ -44,7 +44,7 @@ pub struct AppOptions {
   pub flat_sv: bool,
   pub vol: bool,
   pub hits: bool,
-  pub barlines: bool,
+  pub snappings: bool,
   pub inh_lines: bool,
   pub offset: String,
   pub buffer: String,
@@ -53,6 +53,8 @@ pub struct AppOptions {
   pub flat_scaling: bool,
   pub flat_change: String,
   pub flat_scaling_change: String,
+  pub snapping_numer: String,
+  pub snapping_denom: String,
   pub ignore_bpm: bool,
   pub pos_x: i32,
   pub pos_y: i32,
@@ -73,7 +75,7 @@ impl Default for AppOptions {
       flat_sv: false,
       vol: false,
       hits: true,
-      barlines: false,
+      snappings: false,
       inh_lines: false,
       offset: String::from("-1"),
       buffer: String::from("3"),
@@ -82,6 +84,8 @@ impl Default for AppOptions {
       flat_scaling: false,
       flat_change: String::from("0.0"),
       flat_scaling_change: String::from("1.0"),
+      snapping_numer: String::from("1"),
+      snapping_denom: String::from("1"),
       ignore_bpm: false,
       pos_x: cmp::max(0, nwg::Monitor::width() / 2 - (DEFAULT_WINDOW_WIDTH / 2) as i32),
       pos_y: cmp::max(0, nwg::Monitor::height() / 2 - (DEFAULT_WINDOW_HEIGHT / 2) as i32),
@@ -178,10 +182,10 @@ pub struct UI {
   #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
   pub hit_check: nwg::CheckBox,
 
-  //toggles barline changes
-  #[nwg_control(text: "Barlines", size: (95, 20), position: (2, 40), check_state: Checked, parent: apply_to_frame)]
+  //toggles snapping changes
+  #[nwg_control(text: "Snaps", size: (95, 20), position: (2, 40), check_state: Checked, parent: apply_to_frame)]
   #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
-  pub barline_check: nwg::CheckBox,
+  pub snapping_check: nwg::CheckBox,
 
   //toggles inh line changes
   #[nwg_control(text: "Inh. lines", size: (95, 20), position: (2, 60), check_state: Unchecked, parent: apply_to_frame)]
@@ -243,6 +247,20 @@ pub struct UI {
   #[nwg_control(text: "Mult. Scaling", size: (105, 20), position: (75, 40), check_state: Unchecked, parent: advanced_options_frame)]
   #[nwg_events(OnButtonClick: [UI::update_config(SELF), UI::set_flat_scaling(SELF)])]
   pub flat_sv_scale_check: nwg::CheckBox,
+
+  #[nwg_control(text: "", size: (19, 19), position: (2, 117), parent: advanced_options_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
+  pub snapping_numer_text: nwg::TextInput,
+
+  #[nwg_control(text: "/", size: (7, 20), position: (23, 119), parent: advanced_options_frame)]
+  pub snapping_prefix_label: nwg::Label,
+
+  #[nwg_control(text: "", size: (19, 19), position: (30, 117), parent: advanced_options_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
+  pub snapping_denom_text: nwg::TextInput,
+
+  #[nwg_control(text: "Snapping", size: (100, 20), position: (53, 119), parent: advanced_options_frame)]
+  pub snapping_label: nwg::Label,
 
   //toggles end line/start line BPM
   #[nwg_control(text: "Ignore BPM", size: (105, 20), position: (75, 20), check_state: Unchecked, parent: advanced_options_frame)]
@@ -344,7 +362,7 @@ impl UI {
       start_line = lines.next();
       end_line = lines.next();
       if let (Some(start_l), Some(end_l)) = (start_line, end_line) {
-        if let Err(err) = self.svt.borrow_mut().apply_timing(start_l, end_l, &*self.options.borrow()) {
+        if let Err(err) = self.svt.borrow_mut().apply_two_point_fn(start_l, end_l, &*self.options.borrow()) {
           //if error is encountered, stop applying and update status bar
           println!("[apply] error applying timing {} -> {}", start_l, end_l);
           self.status.set_text(0, &err.to_string());
@@ -457,7 +475,11 @@ impl UI {
       println!("[load] folder: {}", path_folder.to_str().unwrap_or("folder_dne"));
       println!("[load] file: {}", path_osu.to_str().unwrap_or("filename_dne.osu"));
       println!("[load] load starting");
-      self.svt.borrow_mut().load_osu(&filename);
+      let load_result = self.svt.borrow_mut().load_osu(&filename, &*self.options.borrow());
+      if load_result.is_err() {
+        self.status.set_text(0, &load_result.unwrap_err().to_string());
+        return;
+      }
 
       if self.save_config().is_err() {
         println!("[load] failed to save config file")
@@ -522,7 +544,7 @@ impl UI {
     self.flat_sv_check.set_check_state(if app_options.flat_sv {Checked} else {Unchecked});
     self.vol_check.set_check_state(if app_options.vol {Checked} else {Unchecked});
     self.hit_check.set_check_state(if app_options.hits {Checked} else {Unchecked});
-    self.barline_check.set_check_state(if app_options.barlines {Checked} else {Unchecked});
+    self.snapping_check.set_check_state(if app_options.snappings {Checked} else {Unchecked});
     self.inh_check.set_check_state(if app_options.inh_lines {Checked} else {Unchecked});
     self.offset_text.set_text(&app_options.offset);
     self.buffer_text.set_text(&app_options.buffer);
@@ -531,6 +553,8 @@ impl UI {
     self.flat_sv_scale_check.set_check_state(if app_options.flat_scaling {Checked} else {Unchecked});
     self.flat_sv_text.set_text(&app_options.flat_change);
     self.flat_sv_scale_text.set_text(&app_options.flat_scaling_change);
+    self.snapping_numer_text.set_text(&app_options.snapping_numer);
+    self.snapping_denom_text.set_text(&app_options.snapping_denom);
     self.ign_bpm_check.set_check_state(if app_options.ignore_bpm {Checked} else {Unchecked});
 
     //validation on x/y
@@ -573,7 +597,7 @@ impl UI {
       flat_sv: self.flat_sv_check.check_state() == Checked,
       vol: self.vol_check.check_state() == Checked,
       hits: self.hit_check.check_state() == Checked,
-      barlines: self.barline_check.check_state() == Checked,
+      snappings: self.snapping_check.check_state() == Checked,
       inh_lines: self.inh_check.check_state() == Checked,
       offset: self.offset_text.text(),
       buffer: self.buffer_text.text(),
@@ -582,6 +606,8 @@ impl UI {
       flat_scaling: self.flat_sv_scale_check.check_state() == Checked,
       flat_change: self.flat_sv_text.text(),
       flat_scaling_change: self.flat_sv_scale_text.text(),
+      snapping_numer: self.snapping_numer_text.text(),
+      snapping_denom: self.snapping_denom_text.text(),
       ignore_bpm: self.ign_bpm_check.check_state() == Checked,
       pos_x: x,
       pos_y: y,
@@ -691,7 +717,7 @@ impl UI {
     if self.flat_sv_check.check_state() == Checked {
       self.flat_sv_scale_check.set_visible(true);
       self.hit_check.set_enabled(false);
-      self.barline_check.set_enabled(false);
+      self.snapping_check.set_enabled(false);
       self.inh_check.set_enabled(false);
       self.ign_bpm_check.set_enabled(false);
 
@@ -706,7 +732,7 @@ impl UI {
       self.flat_sv_scale_label.set_visible(false);
 
       self.hit_check.set_enabled(true);
-      self.barline_check.set_enabled(true);
+      self.snapping_check.set_enabled(true);
       self.inh_check.set_enabled(true);
       self.ign_bpm_check.set_enabled(true);
     }

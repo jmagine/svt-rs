@@ -7,6 +7,16 @@ use std::path::Path;
 
 use crate::ui;
 
+//TODO - add enum and resolve MapObject Clone derive
+/*
+enum MapObjectClass {
+  UniPoint,
+  InhPoint,
+  Snapping,
+  Hit,
+}
+*/
+
 #[derive(Clone, Debug, Default)]
 pub struct MapObject {
   pub class: i32,
@@ -28,9 +38,8 @@ pub struct SVT {
 }
 
 impl SVT {
-  //TODO figure out something better than passing ui struct in lol
-  //apply timing between two points
-  pub fn apply_timing(&mut self, start_line: &str, end_line: &str, opt: &ui::AppOptions) -> Result<()> {
+  //apply function between two points using options from opt
+  pub fn apply_two_point_fn(&mut self, start_line: &str, end_line: &str, opt: &ui::AppOptions) -> Result<()> {
     
     //only validate these text fields when the corresponding modes are enabled
     let pol_exp = if opt.pol_sv {
@@ -168,7 +177,7 @@ impl SVT {
         effects = obj.effects;
       }
 
-      //perform general calculations here for inher, barlines, hitobjects
+      //perform general calculations here for inher, snappings, hitobjects
       let obj_time = obj.time;
       if obj_time >= start_obj.time - t_buf && obj_time <= end_obj.time + t_buf {
         //ensure time is set both after any uninherited points or kiai time changes within offset window
@@ -226,9 +235,9 @@ impl SVT {
             }
           },
           2 => {
-            //barline
-            if opt.barlines {
-              println!("[new] bar {}", new_point);
+            //snapping
+            if opt.snappings {
+              println!("[new] snp {}", new_point);
               self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
             }
           },
@@ -250,13 +259,26 @@ impl SVT {
   }
 
   //clear all old map objects, load in a new file and repopulate with latest saved state
-  pub fn load_osu(&mut self, filename: &String) {
+  //populates all_objs with timing points (both uni and inh), hit objects, and snappings
+  pub fn load_osu(&mut self, filename: &String, opt: &ui::AppOptions) -> Result<()> {
     let mut bool_timing = false;
     let mut bool_hit = false;
 
+    let snapping_numer = opt.snapping_numer.parse::<f32>().context("[load] invalid snapping numer")?;
+    let snapping_denom = opt.snapping_denom.parse::<f32>().context("[load] invalid snapping denom")?;
+
+    if snapping_denom <= 0.0 {
+      return Err(anyhow!("[load] snapping denom should be > 0"));
+    }
+
+    if snapping_numer <= 0.0 {
+      return Err(anyhow!("[load] snapping numer should be > 0"));
+    }
+
     //TODO figure out better way to init this
-    let mut bar_time: f32 = 1000000.0;
-    let mut bar_inc: f32 = 1000000.0;
+    let mut snap_time: f32 = 1000000.0;
+    let mut snap_inc: f32 = 1000000.0;
+    let mut bar_inc: f32;
 
     self.all_objs.clear();
     self.new_objs.clear();
@@ -265,7 +287,7 @@ impl SVT {
     if let Ok(lines) = read_lines(&filename) {
       for line in lines {
         if let Ok(s) = line {
-          // we only care about the TimingPoints and HitObjects headers
+          // we only care about the TimingPoints and HitObjects headers/sections
           match s.as_str() {
             "[General]" | "[Editor]" | "[Metadata]" | "[Difficulty]" | "[Events]" | "[Colours]" => {
               bool_timing = false;
@@ -284,22 +306,28 @@ impl SVT {
             _ => {
               if bool_timing {
                 if let Ok(map_obj) = create_map_object(s, true) {
-                  //add barlines since last timing point
-                  while bar_time + bar_inc < map_obj.time as f32 {
-                    bar_time += bar_inc;
-                    self.all_objs.push(MapObject{time: bar_time.round() as i32, class: 2, data: String::from(""), ..Default::default()});
+                  //add snappings since last timing point
+                  while snap_time + snap_inc < map_obj.time as f32 {
+                    snap_time += snap_inc;
+                    self.all_objs.push(MapObject{time: snap_time.round() as i32, class: 2, data: String::from(""), ..Default::default()});
                   }
 
-                  //use uninherited point properties to calculate barline times
+                  //use uninherited point properties to calculate snapping times
                   if map_obj.uninherited == 1 {
-                    //set barline counter
-                    bar_time = map_obj.time as f32;
+                    //set snapping counter
+                    snap_time = map_obj.time as f32;
                     bar_inc = map_obj.beatlength * map_obj.meter as f32;
+                    snap_inc = bar_inc * snapping_numer / snapping_denom;
 
+                    /*
                     //add current barline if not skipping barline (skip if effects is set to 8)
                     if map_obj.effects & 8 != 8 {
-                      self.all_objs.push(MapObject{time: bar_time as i32, class: 2, data: String::from(""), ..Default::default()});
+                      self.all_objs.push(MapObject{time: snap_time as i32, class: 2, data: String::from(""), ..Default::default()});
                     }
+                    */
+
+                    //add current snapping
+                    self.all_objs.push(MapObject{time: snap_time as i32, class: 2, data: String::from(""), ..Default::default()});
                   }
 
                   //add timing point
@@ -318,7 +346,16 @@ impl SVT {
       }
     }
 
+    //load another 25% of snappings in case user wants to fade out or something lol
+    let end_snap_time = snap_time * 1.25;
+    while snap_time + snap_inc < end_snap_time {
+      snap_time += snap_inc;
+      self.all_objs.push(MapObject{time: snap_time.round() as i32, class: 2, data: String::from(""), ..Default::default()});
+    }
+
     self.all_objs.sort_by_key(|k| (k.time, k.class));
+
+    Ok(())
   }
 
   //write the current output points to the destination file, using the input file as a template for everything except timing points
@@ -341,9 +378,10 @@ impl SVT {
 
     //build up a vector with all old and new points sorted in chronological, then uninherited > inherited order
 
+    //TODO rename these closer to what they actually represent
     //new_objs is uncleaned representation, can have closely spaced objs
     //svt_objs is the cleaned version, following minimum spacing
-    //all_objs is all old objects, including uninh lines, inh lines, barlines, and hits
+    //all_objs is all old objects, including uninh lines, inh lines, snappings, and hits
     //out_objs is the final set of objects to write to file
     let mut svt_objs: Vec<MapObject> = Vec::new();
     let mut out_objs: Vec<MapObject> = Vec::new();
@@ -447,7 +485,7 @@ impl SVT {
 
     let mut uni_count = 0;
     let mut inh_count = 0;
-    let mut bar_count = 0;
+    let mut snp_count = 0;
     let mut hit_count = 0;
 
     for map_obj in self.all_objs.iter() {
@@ -461,8 +499,8 @@ impl SVT {
           inh_count += 1;
         },
         2 => {
-          println!("[svt] bar {}", map_obj.time);
-          bar_count += 1;
+          println!("[svt] snp {}", map_obj.time);
+          snp_count += 1;
         },
         3 => {
           //println!("[svt] hit {}", map_obj.time);
@@ -473,11 +511,12 @@ impl SVT {
         },
       }
     }
-    println!("[svt] counts:\nuni: {}\ninh: {}\nbar: {}\nhit: {}\n", uni_count, inh_count, bar_count, hit_count);
+    println!("[svt] counts:\nuni: {}\ninh: {}\nsnp: {}\nhit: {}\n", uni_count, inh_count, snp_count, hit_count);
   }
 }
 
-//creates a MapObject for use with the svt module
+//creates a MapObject from timing point/hit point strings (in .osu file format)
+//only produces MapObjects of classes 0 (uni), 1 (inh), 3 (hit)
 fn create_map_object(p: String, timingpoint: bool) -> Result<MapObject> {
   let p_tokens: Vec<&str> = p.split(",").collect();
 
