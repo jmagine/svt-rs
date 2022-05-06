@@ -278,7 +278,7 @@ impl SVT {
     //TODO figure out better way to init this
     let mut snap_time: f32 = 1000000.0;
     let mut snap_inc: f32 = 1000000.0;
-    let mut bar_inc: f32;
+    let mut beat_inc: f32;
 
     self.all_objs.clear();
     self.new_objs.clear();
@@ -316,8 +316,8 @@ impl SVT {
                   if map_obj.uninherited == 1 {
                     //set snapping counter
                     snap_time = map_obj.time as f32;
-                    bar_inc = map_obj.beatlength * map_obj.meter as f32;
-                    snap_inc = bar_inc * snapping_numer / snapping_denom;
+                    beat_inc = map_obj.beatlength as f32;
+                    snap_inc = beat_inc * snapping_numer / snapping_denom;
 
                     /*
                     //add current barline if not skipping barline (skip if effects is set to 8)

@@ -716,14 +716,11 @@ impl UI {
     }
 
     //set visibility of mode specific options
-    if self.pol_sv_check.check_state() == Checked {
-      self.pol_exp_text.set_visible(true);
-      self.pol_exp_label.set_visible(true);
-    } else {
-      self.pol_exp_text.set_visible(false);
-      self.pol_exp_label.set_visible(false);
-    }
+    let pol_visible = self.pol_sv_check.check_state() == Checked;
+    self.pol_exp_text.set_visible(pol_visible);
+    self.pol_exp_label.set_visible(pol_visible);
 
+    //TODO clean up like the other stuff
     if self.flat_sv_check.check_state() == Checked {
       self.flat_sv_scale_check.set_visible(true);
       self.hit_check.set_enabled(false);
@@ -758,17 +755,11 @@ impl UI {
   }
 
   fn set_flat_scaling(&self) {
-    if self.flat_sv_scale_check.check_state() == Checked {
-      self.flat_sv_scale_text.set_visible(true);
-      self.flat_sv_scale_label.set_visible(true);
-      self.flat_sv_text.set_visible(false);
-      self.flat_sv_label.set_visible(false);
-    } else {
-      self.flat_sv_scale_text.set_visible(false);
-      self.flat_sv_scale_label.set_visible(false);
-      self.flat_sv_text.set_visible(true);
-      self.flat_sv_label.set_visible(true);
-    }
+    let sv_scale_visible = self.flat_sv_scale_check.check_state() == Checked;
+    self.flat_sv_scale_text.set_visible(sv_scale_visible);
+    self.flat_sv_scale_label.set_visible(sv_scale_visible);
+    self.flat_sv_text.set_visible(!sv_scale_visible);
+    self.flat_sv_label.set_visible(!sv_scale_visible);
   }
 
   fn set_snapping(&self) {
