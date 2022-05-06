@@ -184,7 +184,7 @@ pub struct UI {
 
   //toggles snapping changes
   #[nwg_control(text: "Snaps", size: (95, 20), position: (2, 40), check_state: Checked, parent: apply_to_frame)]
-  #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
+  #[nwg_events(OnButtonClick: [UI::set_snapping(SELF), UI::update_config(SELF)])]
   pub snapping_check: nwg::CheckBox,
 
   //toggles inh line changes
@@ -336,6 +336,7 @@ impl UI {
 
     self.set_sv_mode(&self.lin_sv_check);
     self.set_flat_scaling();
+    self.set_snapping();
 
     self.svt.replace(svt_app);
   }
@@ -587,6 +588,15 @@ impl UI {
     let (x,y) = self.window.position();
     let (w,h) = self.window.size();
 
+    //err validation on snap numer and denom
+    if !self.snapping_numer_text.text().parse::<i32>().unwrap_or(0).is_positive() {
+      self.snapping_numer_text.set_text("1");
+    }
+
+    if !self.snapping_denom_text.text().parse::<i32>().unwrap_or(0).is_positive() {
+      self.snapping_denom_text.set_text("1");
+    }
+
     let app_options = AppOptions{
       map: self.in_filename.text(),
       inh_times: self.inherited_text.text(),
@@ -723,6 +733,8 @@ impl UI {
 
       //set visiblity of all flat scaling advanced options
       self.set_flat_scaling();
+      self.set_snapping();
+
     } else {
       //hide all flat scaling advanced options
       self.flat_sv_scale_check.set_visible(false);
@@ -757,5 +769,13 @@ impl UI {
       self.flat_sv_text.set_visible(true);
       self.flat_sv_label.set_visible(true);
     }
+  }
+
+  fn set_snapping(&self) {
+    let snapping_enabled = self.snapping_check.check_state() == Checked;
+    self.snapping_numer_text.set_visible(snapping_enabled);
+    self.snapping_denom_text.set_visible(snapping_enabled);
+    self.snapping_prefix_label.set_visible(snapping_enabled);
+    self.snapping_label.set_visible(snapping_enabled);
   }
 }
