@@ -41,6 +41,7 @@ pub struct AppOptions {
   pub exp_sv: bool,
   pub pol_sv: bool,
   pub sin_sv: bool,
+  pub linear_fit_sv: bool,
   pub flat_sv: bool,
   pub vol: bool,
   pub hits: bool,
@@ -50,6 +51,7 @@ pub struct AppOptions {
   pub buffer: String,
   pub min_spacing: String,
   pub pol_exp: String,
+  pub linear_fit_end_sv: String,
   pub flat_scaling: bool,
   pub flat_change: String,
   pub flat_scaling_change: String,
@@ -71,6 +73,7 @@ impl Default for AppOptions {
       lin_sv: true,
       pol_sv: false,
       sin_sv: false,
+      linear_fit_sv: false,
       exp_sv: false,
       flat_sv: false,
       vol: false,
@@ -81,6 +84,7 @@ impl Default for AppOptions {
       buffer: String::from("3"),
       min_spacing: String::from("3"),
       pol_exp: String::from("0.5"),
+      linear_fit_end_sv: String::from("1.0"),
       flat_scaling: false,
       flat_change: String::from("0.0"),
       flat_scaling_change: String::from("1.0"),
@@ -117,7 +121,7 @@ pub struct UI {
 
   #[nwg_control(flags: "VISIBLE")]
   #[nwg_layout_item(layout: window_layout, margin: MARGIN,
-    size: Size { width: D::Percent(1.0), height: D::Points(140.0) },
+    size: Size { width: D::Percent(1.0), height: D::Points(160.0) },
   )]
   pub options_frame: nwg::Frame,
 
@@ -134,7 +138,7 @@ pub struct UI {
   pub applyundo_frame: nwg::Frame,
 
   //outline around the apply controls
-  #[nwg_control(size: (60, 140), position: (0, 0), parent: options_frame)]
+  #[nwg_control(size: (60, 160), position: (0, 0), parent: options_frame)]
   pub apply_frame: nwg::Frame,
 
   #[nwg_control(text: "Apply:", size: (45, 20), position: (2, 0), parent: apply_frame)]
@@ -160,18 +164,23 @@ pub struct UI {
   #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
   pub sin_sv_check: nwg::CheckBox,
 
-      //toggles sv changes
-  #[nwg_control(text: "Flat SV", size: (95, 20), position: (2, 100), check_state: Unchecked, parent: apply_frame)]
+  //toggles sv changes
+  #[nwg_control(text: "LF SV", size: (95, 20), position: (2, 100), check_state: Unchecked, parent: apply_frame)]
+  #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
+  pub linear_fit_sv_check: nwg::CheckBox,
+
+  //toggles sv changes
+  #[nwg_control(text: "Flat SV", size: (95, 20), position: (2, 120), check_state: Unchecked, parent: apply_frame)]
   #[nwg_events(OnButtonClick: [UI::set_sv_mode(SELF, CTRL), UI::update_config(SELF)])]
   pub flat_sv_check: nwg::CheckBox,
 
   //toggles vol changes
-  #[nwg_control(text: "Lin. Vol", size: (95, 20), position: (2, 120), check_state: Checked, parent: apply_frame)]
+  #[nwg_control(text: "Lin. Vol", size: (95, 20), position: (2, 140), check_state: Checked, parent: apply_frame)]
   #[nwg_events(OnButtonClick: [UI::update_config(SELF)])]
   pub vol_check: nwg::CheckBox,
 
   //outline around the apply to controls
-  #[nwg_control(size: (70, 140), position: (59, 0), parent: options_frame)]
+  #[nwg_control(size: (70, 160), position: (59, 0), parent: options_frame)]
   pub apply_to_frame: nwg::Frame,
 
   #[nwg_control(text: "To:", size: (65, 20), position: (2, 0), parent: apply_to_frame)]
@@ -193,7 +202,7 @@ pub struct UI {
   pub inh_check: nwg::CheckBox,
 
   //outline around advanced controls
-  #[nwg_control(size: (162, 140), position: (128, 0), parent: options_frame)]
+  #[nwg_control(size: (162, 160), position: (128, 0), parent: options_frame)]
   pub advanced_options_frame: nwg::Frame,
 
   #[nwg_control(text: "Advanced Options:", size: (195, 20), position: (2, 0), parent: advanced_options_frame)]
@@ -229,6 +238,13 @@ pub struct UI {
 
   #[nwg_control(text: "Exp.", size: (45, 20), position: (25, 82), parent: advanced_options_frame)]
   pub pol_exp_label: nwg::Label,
+
+  #[nwg_control(text: "", size: (19, 19), position: (2, 80), parent: advanced_options_frame)]
+  #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
+  pub linear_fit_end_sv_text: nwg::TextInput,
+
+  #[nwg_control(text: "Lin. Fit End SV", size: (100, 20), position: (25, 82), parent: advanced_options_frame)]
+  pub linear_fit_end_sv_label: nwg::Label,
 
   #[nwg_control(text: "", size: (19, 19), position: (2, 80), parent: advanced_options_frame)]
   #[nwg_events(OnTextInput: [UI::update_config(SELF)])]
@@ -335,8 +351,8 @@ impl UI {
     self.undo_button.set_enabled(false);
 
     self.set_sv_mode(&self.lin_sv_check);
-    self.set_flat_scaling();
-    self.set_snapping();
+    //self.set_flat_scaling();
+    //self.set_snapping();
 
     self.svt.replace(svt_app);
   }
@@ -541,6 +557,7 @@ impl UI {
     self.lin_sv_check.set_check_state(if app_options.lin_sv {Checked} else {Unchecked});
     self.pol_sv_check.set_check_state(if app_options.pol_sv {Checked} else {Unchecked});
     self.sin_sv_check.set_check_state(if app_options.sin_sv {Checked} else {Unchecked});
+    self.linear_fit_sv_check.set_check_state(if app_options.linear_fit_sv {Checked} else {Unchecked});
     self.exp_sv_check.set_check_state(if app_options.exp_sv {Checked} else {Unchecked});
     self.flat_sv_check.set_check_state(if app_options.flat_sv {Checked} else {Unchecked});
     self.vol_check.set_check_state(if app_options.vol {Checked} else {Unchecked});
@@ -551,6 +568,7 @@ impl UI {
     self.buffer_text.set_text(&app_options.buffer);
     self.min_spacing_text.set_text(&app_options.min_spacing);
     self.pol_exp_text.set_text(&app_options.pol_exp);
+    self.linear_fit_end_sv_text.set_text(&app_options.linear_fit_end_sv);
     self.flat_sv_scale_check.set_check_state(if app_options.flat_scaling {Checked} else {Unchecked});
     self.flat_sv_text.set_text(&app_options.flat_change);
     self.flat_sv_scale_text.set_text(&app_options.flat_scaling_change);
@@ -603,6 +621,7 @@ impl UI {
       lin_sv: self.lin_sv_check.check_state() == Checked,
       pol_sv: self.pol_sv_check.check_state() == Checked,
       sin_sv: self.sin_sv_check.check_state() == Checked,
+      linear_fit_sv: self.linear_fit_sv_check.check_state() == Checked,
       exp_sv: self.exp_sv_check.check_state() == Checked,
       flat_sv: self.flat_sv_check.check_state() == Checked,
       vol: self.vol_check.check_state() == Checked,
@@ -613,6 +632,7 @@ impl UI {
       buffer: self.buffer_text.text(),
       min_spacing: self.min_spacing_text.text(),
       pol_exp: self.pol_exp_text.text(),
+      linear_fit_end_sv: self.linear_fit_end_sv_text.text(),
       flat_scaling: self.flat_sv_scale_check.check_state() == Checked,
       flat_change: self.flat_sv_text.text(),
       flat_scaling_change: self.flat_sv_scale_text.text(),
@@ -679,75 +699,61 @@ impl UI {
   }
 
   fn set_sv_mode(&self, ctrl: &nwg::CheckBox) {
-    //ensure only one sv option is checked at a time
-    if ctrl == &self.lin_sv_check {
-      if self.lin_sv_check.check_state() == Checked {
-        self.pol_sv_check.set_check_state(Unchecked);
-        self.exp_sv_check.set_check_state(Unchecked);
-        self.flat_sv_check.set_check_state(Unchecked);
-        self.sin_sv_check.set_check_state(Unchecked);
-      }
-    } else if ctrl == &self.pol_sv_check {
-      self.lin_sv_check.set_check_state(Unchecked);
-      self.exp_sv_check.set_check_state(Unchecked);
-      self.flat_sv_check.set_check_state(Unchecked);
-      self.sin_sv_check.set_check_state(Unchecked);
-    } else if ctrl == &self.exp_sv_check {
-      if self.exp_sv_check.check_state() == Checked {
-        self.lin_sv_check.set_check_state(Unchecked);
-        self.pol_sv_check.set_check_state(Unchecked);
-        self.flat_sv_check.set_check_state(Unchecked);
-        self.sin_sv_check.set_check_state(Unchecked);
-      }
-    } else if ctrl == &self.flat_sv_check {
-      if self.flat_sv_check.check_state() == Checked {
-        self.lin_sv_check.set_check_state(Unchecked);
-        self.pol_sv_check.set_check_state(Unchecked);
-        self.exp_sv_check.set_check_state(Unchecked);
-        self.sin_sv_check.set_check_state(Unchecked);
-      }
-    } else if ctrl == &self.sin_sv_check {
-      if self.sin_sv_check.check_state() == Checked {
-        self.lin_sv_check.set_check_state(Unchecked);
-        self.pol_sv_check.set_check_state(Unchecked);
-        self.exp_sv_check.set_check_state(Unchecked);
-        self.flat_sv_check.set_check_state(Unchecked);
-      }
+
+    //ensure only one sv option is checked at a time, uncheck all other sv modes
+    if ctrl.check_state() == Checked {
+      self.lin_sv_check.set_check_state(if ctrl != &self.lin_sv_check {Unchecked} else {Checked});
+      self.pol_sv_check.set_check_state(if ctrl != &self.pol_sv_check {Unchecked} else {Checked});
+      self.exp_sv_check.set_check_state(if ctrl != &self.exp_sv_check {Unchecked} else {Checked});
+      self.flat_sv_check.set_check_state(if ctrl != &self.flat_sv_check {Unchecked} else {Checked});
+      self.sin_sv_check.set_check_state(if ctrl != &self.sin_sv_check {Unchecked} else {Checked});
+      self.linear_fit_sv_check.set_check_state(if ctrl != &self.linear_fit_sv_check {Unchecked} else {Checked});
     }
 
-    //set visibility of mode specific options
-    let pol_visible = self.pol_sv_check.check_state() == Checked;
-    self.pol_exp_text.set_visible(pol_visible);
-    self.pol_exp_label.set_visible(pol_visible);
+    //set visibility of mode specific apply to/advanced options
+    let pol_checked = self.pol_sv_check.check_state() == Checked;
+    self.pol_exp_text.set_visible(pol_checked);
+    self.pol_exp_label.set_visible(pol_checked);
 
-    //TODO clean up like the other stuff
-    if self.flat_sv_check.check_state() == Checked {
-      self.flat_sv_scale_check.set_visible(true);
-      self.hit_check.set_enabled(false);
-      self.snapping_check.set_enabled(false);
-      self.inh_check.set_enabled(false);
-      self.ign_bpm_check.set_enabled(false);
+    let flat_sv_checked = self.flat_sv_check.check_state() == Checked;
+    let linear_fit_sv_checked = self.linear_fit_sv_check.check_state() == Checked;
+    self.flat_sv_scale_check.set_visible(flat_sv_checked);
+    self.hit_check.set_enabled(!flat_sv_checked && !linear_fit_sv_checked);
+    self.snapping_check.set_enabled(!flat_sv_checked && !linear_fit_sv_checked);
+    self.inh_check.set_enabled(!flat_sv_checked && !linear_fit_sv_checked);
+    self.ign_bpm_check.set_enabled(!flat_sv_checked && !linear_fit_sv_checked);
 
-      //set visiblity of all flat scaling advanced options
+    if flat_sv_checked {
       self.set_flat_scaling();
-      self.set_snapping();
 
+      //hide disabled snapping options when using flat_sv
+      self.snapping_numer_text.set_visible(false);
+      self.snapping_denom_text.set_visible(false);
+      self.snapping_prefix_label.set_visible(false);
+      self.snapping_label.set_visible(false);
     } else {
       //hide all flat scaling advanced options
-      self.flat_sv_scale_check.set_visible(false);
       self.flat_sv_text.set_visible(false);
       self.flat_sv_label.set_visible(false);
       self.flat_sv_scale_text.set_visible(false);
       self.flat_sv_scale_label.set_visible(false);
 
-      self.hit_check.set_enabled(true);
-      self.snapping_check.set_enabled(true);
-      self.inh_check.set_enabled(true);
-      self.ign_bpm_check.set_enabled(true);
+      //recheck snapping option as it is potentially re-enabled
+      self.set_snapping();
     }
 
+    self.linear_fit_end_sv_text.set_visible(linear_fit_sv_checked);
+    self.linear_fit_end_sv_label.set_visible(linear_fit_sv_checked);
+
+    let some_sv_checked = self.lin_sv_check.check_state() == Checked || 
+        self.exp_sv_check.check_state() == Checked || 
+        self.pol_sv_check.check_state() == Checked || 
+        self.sin_sv_check.check_state() == Checked || 
+        self.linear_fit_sv_check.check_state() == Checked || 
+        self.flat_sv_check.check_state() == Checked;
+
     //set visibility of sv options
-    if ctrl.check_state() == Checked {
+    if some_sv_checked {
       self.ign_bpm_check.set_enabled(true);
     } else {
       self.ign_bpm_check.set_enabled(false);

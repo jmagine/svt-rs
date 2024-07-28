@@ -47,6 +47,7 @@ impl SVT {
     } else {
       1.0
     };
+    
     let flat_sv = if opt.flat_sv && !opt.flat_scaling {
       opt.flat_change.parse::<f32>().context("[apply] invalid flat sv")?
     } else {
@@ -59,10 +60,16 @@ impl SVT {
       1.0
     };
 
+    let linear_fit_end_sv = if opt.linear_fit_sv {
+      opt.linear_fit_end_sv.parse::<f32>().context("[apply] invalid linear fit end sv")?
+    } else {
+      1.0
+    };
+
     let t_off = opt.offset.parse::<i32>().context("[apply] invalid offset")?;
     let t_buf = opt.buffer.parse::<i32>().context("[apply] invalid buffer")?;
 
-    let sv_change_bool = opt.lin_sv || opt.pol_sv || opt.sin_sv || opt.exp_sv || opt.flat_sv;
+    let sv_change_bool = opt.lin_sv || opt.pol_sv || opt.sin_sv || opt.exp_sv || opt.flat_sv || opt.linear_fit_sv;
 
     //not applying sv and not applying volume
     if !sv_change_bool && !opt.vol {
@@ -101,6 +108,12 @@ impl SVT {
       -100.0 * e_bpm / end_obj.beatlength
     };
 
+    let linear_fit_e_sv_raw = if opt.ignore_bpm {
+      s_bpm * linear_fit_end_sv
+    } else {
+      e_bpm * linear_fit_end_sv
+    };
+
     //debug print
     println!("[apply] t:{}->{} raw sv:{}->{} vol:{}->{}", start_obj.time, end_obj.time, s_sv_raw, e_sv_raw, start_obj.volume, end_obj.volume);
 
@@ -137,8 +150,8 @@ impl SVT {
     let mut kiai_change_time = 0;
 
     for obj in self.all_objs.iter() {
-      //only consider timing points for flat sv
-      if opt.flat_sv && obj.class > 1 {
+      //only consider timing points for flat and linear fit sv
+      if (opt.flat_sv || opt.linear_fit_sv) && obj.class > 1 {
         continue;
       }
 
@@ -156,6 +169,7 @@ impl SVT {
         bpm = 60000.0 / obj.beatlength;
         meter = obj.meter;
 
+        //TODO may not need these
         beatlength = obj.beatlength;
         sample_set = obj.sampleset;
         sample_index = obj.sampleindex;
@@ -170,6 +184,7 @@ impl SVT {
           kiai_change_time = obj.time;
         }
 
+        //TODO may not need these
         beatlength = obj.beatlength;
         sample_set = obj.sampleset;
         sample_index = obj.sampleindex;
@@ -179,78 +194,83 @@ impl SVT {
 
       //perform general calculations here for inher, snappings, hitobjects
       let obj_time = obj.time;
-      if obj_time >= start_obj.time - t_buf && obj_time <= end_obj.time + t_buf {
-        //ensure time is set both after any uninherited points or kiai time changes within offset window
-        let new_t = cmp::max(cmp::max(obj_time + t_off, last_uni_time), kiai_change_time);
-        let new_sv = if opt.lin_sv {
-          //linear
-          s_sv_raw + (obj_time - start_obj.time) as f32 * sv_per_ms
-        } else if opt.exp_sv {
-          //exponential
-          s_sv_raw * f32::exp((obj_time - start_obj.time) as f32 * f32::ln(sv_ratio) / t_diff as f32)
-        } else if opt.pol_sv {
-          //polynomial
-          s_sv_raw + sv_diff * f32::powf(cmp::max(0, obj_time - start_obj.time) as f32 / t_diff as f32, pol_exp)
-        } else if opt.sin_sv {
-          s_sv_raw + sv_diff * (1 as f32 - f32::cos(std::f32::consts::PI * (obj_time - start_obj.time) as f32 / t_diff as f32)) / 2 as f32
-        } else if opt.flat_sv {
-          //flat
-          if opt.flat_scaling {
-            (-100.0 / obj.beatlength) * s_bpm * flat_sv_scaling
-          } else {
-            (-100.0 / obj.beatlength + flat_sv) * s_bpm
-          }
+
+      if obj_time < start_obj.time - t_buf || obj_time > end_obj.time + t_buf {
+        continue;
+      }
+
+      //ensure time is set both after any uninherited points or kiai time changes within offset window
+      let new_t = cmp::max(cmp::max(obj_time + t_off, last_uni_time), kiai_change_time);
+      let new_sv = if opt.lin_sv {
+        //linear
+        s_sv_raw + (obj_time - start_obj.time) as f32 * sv_per_ms
+      } else if opt.exp_sv {
+        //exponential
+        s_sv_raw * f32::exp((obj_time - start_obj.time) as f32 * f32::ln(sv_ratio) / t_diff as f32)
+      } else if opt.pol_sv {
+        //polynomial
+        s_sv_raw + sv_diff * f32::powf(cmp::max(0, obj_time - start_obj.time) as f32 / t_diff as f32, pol_exp)
+      } else if opt.sin_sv {
+        s_sv_raw + sv_diff * (1 as f32 - f32::cos(std::f32::consts::PI * (obj_time - start_obj.time) as f32 / t_diff as f32)) / 2 as f32
+      } else if opt.flat_sv {
+        //flat
+        if opt.flat_scaling {
+          (-100.0 / obj.beatlength) * s_bpm * flat_sv_scaling
         } else {
-          -100.0
-        };
+          (-100.0 / obj.beatlength + flat_sv) * s_bpm
+        }
+      } else if opt.linear_fit_sv {
+        (-100.0 / obj.beatlength) * s_bpm * (s_sv_raw + (linear_fit_e_sv_raw - s_sv_raw) * (obj_time - start_obj.time) as f32 / t_diff as f32) / s_sv_raw
+      } else {
+        -100.0
+      };
 
-        let new_b = -100.0 / (new_sv / bpm);
-        let new_vol = ((start_obj.volume as f32 + (obj_time - start_obj.time) as f32 * vol_per_ms)).round() as u32;
-        let new_point = match (sv_change_bool, opt.vol) {
-          //sv and vol
-          (true, true) => {
-            format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, new_vol, 0, effects)
-          },
-          //sv and no vol
-          (true, false) => {
-            format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, volume, 0, effects)
-          },
-          //no sv and vol
-          (false, true) => {
-            format!("{},{},{},{},{},{},{},{}", new_t, beatlength, meter, sample_set, sample_index, new_vol, 0, effects)
-          },
-          //no sv, no vol - should not reach this point
-          _ => {
-            format!("")
-          },
-        };
+      let new_b = -100.0 / (new_sv / bpm);
+      let new_vol = ((start_obj.volume as f32 + (obj_time - start_obj.time) as f32 * vol_per_ms)).round() as u32;
+      let new_point = match (sv_change_bool, opt.vol) {
+        //sv and vol
+        (true, true) => {
+          format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, new_vol, 0, effects)
+        },
+        //sv and no vol
+        (true, false) => {
+          format!("{},{},{},{},{},{},{},{}", new_t, new_b, meter, sample_set, sample_index, volume, 0, effects)
+        },
+        //no sv and vol
+        (false, true) => {
+          format!("{},{},{},{},{},{},{},{}", new_t, beatlength, meter, sample_set, sample_index, new_vol, 0, effects)
+        },
+        //no sv, no vol - should not reach this point
+        _ => {
+          format!("")
+        },
+      };
 
-        match obj.class {
-          0 => {println!("[apply] shouldn't get here, class 1");}, //uninherited line
-          1 => {
-            //inherited line
-            if opt.inh_lines || opt.flat_sv {
-              println!("[new] inh {}", new_point);
-              self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
-            }
-          },
-          2 => {
-            //snapping
-            if opt.snappings {
-              println!("[new] snp {}", new_point);
-              self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
-            }
-          },
-          3 => {
-            //hitobject
-            if opt.hits {
-              println!("[new] hit {}", new_point);
-              self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
-            }
-          },
-          _ => {
-            println!("[apply] unknown class {}", obj.class);
+      match obj.class {
+        0 => {println!("[apply] shouldn't get here, class 1");}, //uninherited line
+        1 => {
+          //inherited line
+          if opt.inh_lines || opt.flat_sv || opt.linear_fit_sv {
+            println!("[new] inh {}", new_point);
+            self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
           }
+        },
+        2 => {
+          //snapping
+          if opt.snappings {
+            println!("[new] snp {}", new_point);
+            self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
+          }
+        },
+        3 => {
+          //hitobject
+          if opt.hits {
+            println!("[new] hit {}", new_point);
+            self.new_objs.push(MapObject{time: new_t, class: 4, data: new_point, ..Default::default()});
+          }
+        },
+        _ => {
+          println!("[apply] unknown class {}", obj.class);
         }
       }
     }
