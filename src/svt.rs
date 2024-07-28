@@ -196,9 +196,9 @@ impl SVT {
         } else if opt.flat_sv {
           //flat
           if opt.flat_scaling {
-            (-100.0 / obj.beatlength) * s_bpm * flat_sv_scaling
+            (-100.0 / obj.beatlength) * bpm * flat_sv_scaling
           } else {
-            (-100.0 / obj.beatlength + flat_sv) * s_bpm
+            (-100.0 / obj.beatlength + flat_sv) * bpm
           }
         } else {
           -100.0
